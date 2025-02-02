@@ -97,24 +97,17 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<Type> {
             .target_list
             .iter()
             .map(|target| {
-                let NodeEnum::ResTarget(target) = target.node.as_ref().expect("stmt.node.target")
-                else {
+                let NodeEnum::ResTarget(target) = target.node.as_ref().unwrap() else {
                     unimplemented!("target")
                 };
-                let target = target
-                    .val
-                    .as_ref()
-                    .expect("target.val")
-                    .node
-                    .as_ref()
-                    .expect("target.val.node");
+                let target = target.val.as_ref().unwrap().node.as_ref().unwrap();
 
                 match target {
                     NodeEnum::ColumnRef(cr) => {
                         let &[t_name, c_name] = &cr
                             .fields
                             .iter()
-                            .map(|f| match f.node.as_ref().expect("column_ref.node") {
+                            .map(|f| match f.node.as_ref().unwrap() {
                                 NodeEnum::String(pg_query::protobuf::String { sval }) => sval,
                                 _ => unimplemented!("column ref"),
                             })
@@ -123,7 +116,7 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<Type> {
                             panic!("invalid name, use table.column")
                         };
 
-                        ctg.find_type(t_name, c_name).expect("column not found")
+                        ctg.find_type(t_name, c_name).unwrap()
                     }
                     NodeEnum::AConst(c) => match c.val.as_ref().unwrap() {
                         Val::Ival(_) => Type::Int,
