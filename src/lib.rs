@@ -1,9 +1,12 @@
-use pg_query::NodeEnum;
+use pg_query::{protobuf::a_const::Val, NodeEnum};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Int,
-    Text,
+    String,
+    Bytes,
+    Boolean,
+    Float,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +125,13 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<Type> {
 
                         ctg.find_type(t_name, c_name).expect("column not found")
                     }
+                    NodeEnum::AConst(c) => match c.val.as_ref().unwrap() {
+                        Val::Ival(_) => Type::Int,
+                        Val::Fval(_) => Type::Float,
+                        Val::Boolval(_) => Type::Boolean,
+                        Val::Sval(_) => Type::String,
+                        Val::Bsval(_) => Type::Bytes,
+                    },
                     _ => unimplemented!("column"),
                 }
             })
@@ -139,13 +149,27 @@ mod tests {
     fn resolve_simple_select() {
         let ctl = Catalog::new(tables!(
             x {
-                a => Text,
+                a => String,
                 b => Int,
             },
         ));
 
         let ast = parse("SELECT x.a, x.b FROM x");
-        let expected = vec![Type::Text, Type::Int];
+        let expected = vec![Type::String, Type::Int];
+
+        assert_eq!(solve_type(&ctl, ast), expected);
+    }
+
+    #[test]
+    fn resolve_simple_select_with_literal() {
+        let ctl = Catalog::new(tables!(
+            x {
+                a => Bytes,
+            },
+        ));
+
+        let ast = parse("SELECT x.a, 1, '123' FROM x");
+        let expected = vec![Type::Bytes, Type::Int, Type::String];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
