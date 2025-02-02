@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.95", features = ["backtrace"] }
-sqlparser = "0.54.0"
+pg_query = "6.0.0"

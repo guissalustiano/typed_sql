@@ -1,19 +1,15 @@
-#![feature(box_patterns)]
-
 use core::panic;
-use std::collections::{HashMap, HashSet};
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+use pg_query::{protobuf::ParseResult, NodeEnum};
 
 #[derive(Debug, Clone)]
-struct Table {
-    name: String,
-    columns: HashSet<String>,
+pub struct Table {
+    pub(crate) name: String,
+    pub(crate) columns: Vec<String>,
 }
 
 impl Table {
+    #[cfg(test)]
     pub(crate) fn new<'a>(name: &'a str, columns: impl IntoIterator<Item = &'a str>) -> Self {
         Table {
             name: name.to_string(),
@@ -23,90 +19,130 @@ impl Table {
 }
 
 #[derive(Debug)]
-struct SystemCatalogs {
-    tables: HashMap<String, Table>,
+pub struct Catalog {
+    pub(crate) tables: Vec<Table>,
 }
 
-impl SystemCatalogs {
+impl Catalog {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
-        SystemCatalogs {
-            tables: HashMap::new(),
-        }
+        Catalog { tables: Vec::new() }
     }
 
-    pub(crate) fn find(ts: Vec<Table>, c: String) -> Table {
-        let ts: Vec<_> = ts.into_iter().filter(|t| t.columns.contains(&c)).collect();
-        if ts.len() == 0 {
-            panic!("no column with this name");
-        }
-        if ts.len() > 1 {
-            panic!("ambiguous column");
-        }
-
-        ts.first().unwrap().clone()
+    pub(crate) fn table(&self, t_name: &str) -> Option<&Table> {
+        self.tables.iter().find(|t| t.name == t_name)
     }
 
     pub(crate) fn insert(mut self, t: Table) -> Self {
-        self.tables.insert(t.name.clone(), t);
+        self.tables.push(t);
         self
     }
 }
 
-fn resolve(sc: &SystemCatalogs, ast: &sqlparser::ast::Statement) -> Result<(), ()> {
-    match ast {
-        sqlparser::ast::Statement::Query(box sqlparser::ast::Query {
-            with: None,
-            body:
-                s @ box sqlparser::ast::SetExpr::Select(box sqlparser::ast::Select {
-                    projection,
-                    from,
-                    ..
-                }),
-            order_by: None,
-            ..
-        }) => {
-            let sqlparser::ast::TableFactor::Table { ref name, .. } =
-                from.first().unwrap().relation
-            else {
-                unimplemented!()
-            };
-            let from = &name.0.first().unwrap().value;
-            let table = sc.tables.get(from).expect("table not found");
+fn full_qualify(sc: &Catalog, ast: ParseResult) -> Result<ParseResult, ()> {
+    for stmt in &ast.stmts {
+        let stmt = stmt
+            .stmt
+            .as_ref()
+            .expect(".stmt")
+            .node
+            .as_ref()
+            .expect(".stmt.node");
 
-            let sqlparser::ast::SelectItem::UnnamedExpr(sqlparser::ast::Expr::Identifier(
-                sqlparser::ast::Ident { value: c, .. },
-            )) = projection.first().unwrap()
-            else {
-                unimplemented!()
-            };
+        match stmt {
+            NodeEnum::SelectStmt(s) => {
+                let from = &s
+                    .from_clause
+                    .iter()
+                    .map(|n| {
+                        let NodeEnum::RangeVar(r) = n.node.as_ref().expect("stmt.node.from.node")
+                        else {
+                            unimplemented!("from")
+                        };
+                        dbg!(r)
+                    })
+                    .map(|r| sc.table(&r.relname).expect("invalid table"))
+                    .collect::<Vec<_>>();
 
-            let c_table = SystemCatalogs::find(vec![table.clone()], c.to_string()).name;
+                for target in &s.target_list {
+                    let NodeEnum::ResTarget(target) =
+                        target.node.as_ref().expect("stmt.node.target")
+                    else {
+                        unimplemented!("target")
+                    };
+                    let target = target
+                        .val
+                        .as_ref()
+                        .expect("target.val")
+                        .node
+                        .as_ref()
+                        .expect("target.val.node");
 
-            dbg!(&c_table);
-            todo!()
+                    match target {
+                        NodeEnum::ColumnRef(cr) => {
+                            let target = &mut cr.fields.iter().map(|f| {
+                                match f.node.as_ref().expect("column_ref.node") {
+                                    NodeEnum::String(pg_query::protobuf::String { sval }) => {
+                                        dbg!(sval)
+                                    }
+                                    _ => unimplemented!("column ref"),
+                                }
+                            });
+
+                            // let target = cr.fields.
+
+                            // match from.as_slice() {
+                            //     &[] => unreachable!("fields len is zero"),
+                            //     // column
+                            //     &[_] => {}
+                            //     // table.column
+                            //     &[t_name, c_name] => {
+                            //         // contains
+                            //         let Some(t) = from.iter().find(|t| t.name == t_name) else {
+                            //             panic!("table not found");
+                            //         };
+
+                            //         assert!(t.columns.contains(c_name))
+                            //         // let table
+                            //     }
+                            //     // schema.table.column
+                            //     &[_, _, _] => unimplemented!("fields with schema"),
+                            //     // that's a lie, we can resolve to structs
+                            //     _ => panic!("to many does not resolve to anything"),
+                            // }
+
+                            dbg!(cr);
+                            todo!("todo")
+                        }
+                        _ => unimplemented!("column"),
+                    }
+                }
+                todo!()
+            }
+            _ => unimplemented!("stmt"),
         }
-        _ => unimplemented!(),
     }
+
+    Err(())
 }
 
 #[cfg(test)]
-fn parse(sql: &str) -> sqlparser::ast::Statement {
-    sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect {}, sql)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone()
+fn parse(sql: &str) -> ParseResult {
+    pg_query::parse(sql).unwrap().protobuf
 }
 
 #[cfg(test)]
 mod tests {
+    use super::parse;
     use super::*;
 
     #[test]
     fn resolve_simple_select() {
-        let table = SystemCatalogs::new().insert(Table::new("x", ["a", "b", "c"]));
+        let ctl = Catalog::new().insert(Table::new("x", ["a", "b", "c"]));
 
-        let ast = parse("SELECT a, b FROM x");
-        let ir = resolve(&table, &ast).unwrap();
+        let ast = parse("SELECT x.a, b FROM x");
+        let f_ast = parse("SELECT x.a, x.b FROM x");
+
+        assert_eq!(full_qualify(&ctl, ast), Ok(f_ast))
     }
 }
