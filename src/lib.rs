@@ -7,6 +7,7 @@ pub enum Type {
     Bytes,
     Boolean,
     Float,
+    Null,
 }
 
 #[derive(Debug, Clone)]
@@ -118,12 +119,13 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<Type> {
 
                         ctg.find_type(t_name, c_name).unwrap()
                     }
-                    NodeEnum::AConst(c) => match c.val.as_ref().unwrap() {
-                        Val::Ival(_) => Type::Int,
-                        Val::Fval(_) => Type::Float,
-                        Val::Boolval(_) => Type::Boolean,
-                        Val::Sval(_) => Type::String,
-                        Val::Bsval(_) => Type::Bytes,
+                    NodeEnum::AConst(c) => match c.val.as_ref() {
+                        Some(Val::Ival(_)) => Type::Int,
+                        Some(Val::Fval(_)) => Type::Float,
+                        Some(Val::Boolval(_)) => Type::Boolean,
+                        Some(Val::Sval(_)) => Type::String,
+                        Some(Val::Bsval(_)) => Type::Bytes,
+                        None => Type::Null,
                     },
                     _ => unimplemented!("column"),
                 }
@@ -163,6 +165,20 @@ mod tests {
 
         let ast = parse("SELECT x.a, 1, '123' FROM x");
         let expected = vec![Type::Bytes, Type::Int, Type::String];
+
+        assert_eq!(solve_type(&ctl, ast), expected);
+    }
+
+    #[test]
+    fn resolve_simple_select_with_null() {
+        let ctl = Catalog::new(tables!(
+            x {
+                a => Bytes,
+            },
+        ));
+
+        let ast = parse("SELECT NULL FROM x");
+        let expected = vec![Type::Null];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
