@@ -10,10 +10,15 @@ pub enum Type {
     Null,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColumnData {
+    pub type_: Type,
+}
+
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
-    pub type_: Type,
+    pub data: ColumnData,
 }
 
 #[derive(Debug, Clone)]
@@ -33,14 +38,14 @@ impl Catalog {
         Catalog { tables }
     }
 
-    fn find_type(&self, t_name: &str, c_name: &str) -> Option<Type> {
+    fn find_type(&self, t_name: &str, c_name: &str) -> Option<ColumnData> {
         self.tables
             .iter()
             .find(|t| t.name == t_name)?
             .columns
             .iter()
             .find(|c| c.name == c_name)
-            .map(|c| c.type_)
+            .map(|c| c.data)
     }
 }
 
@@ -77,7 +82,9 @@ macro_rules! tables {
                 $(
                     columns.push(Column {
                         name: stringify!($column_name).to_string(),
-                        type_: Type::$column_type,
+                        data: ColumnData{
+                            type_: Type::$column_type,
+                        }
                     });
                 )*
 
@@ -92,7 +99,26 @@ macro_rules! tables {
     };
 }
 
-pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<Type> {
+#[cfg(test)]
+macro_rules! ttys {
+    (
+        $($type:ident),*
+    ) => {
+        {
+            let mut c = Vec::new();
+
+            $(
+                c.push(ColumnData{
+                    type_: Type::$type,
+                });
+            )*
+
+            c
+        }
+    };
+}
+
+pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<ColumnData> {
     match stmt {
         NodeEnum::SelectStmt(s) => s
             .target_list
@@ -120,12 +146,16 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<Type> {
                         ctg.find_type(t_name, c_name).unwrap()
                     }
                     NodeEnum::AConst(c) => match c.val.as_ref() {
-                        Some(Val::Ival(_)) => Type::Int,
-                        Some(Val::Fval(_)) => Type::Float,
-                        Some(Val::Boolval(_)) => Type::Boolean,
-                        Some(Val::Sval(_)) => Type::String,
-                        Some(Val::Bsval(_)) => Type::Bytes,
-                        None => Type::Null,
+                        Some(Val::Ival(_)) => ColumnData { type_: Type::Int },
+                        Some(Val::Fval(_)) => ColumnData { type_: Type::Float },
+                        Some(Val::Boolval(_)) => ColumnData {
+                            type_: Type::Boolean,
+                        },
+                        Some(Val::Sval(_)) => ColumnData {
+                            type_: Type::String,
+                        },
+                        Some(Val::Bsval(_)) => ColumnData { type_: Type::Bytes },
+                        None => ColumnData { type_: Type::Null },
                     },
                     _ => unimplemented!("column"),
                 }
@@ -150,7 +180,7 @@ mod tests {
         ));
 
         let ast = parse("SELECT x.a, x.b FROM x");
-        let expected = vec![Type::String, Type::Int];
+        let expected = ttys![String, Int];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
@@ -164,7 +194,7 @@ mod tests {
         ));
 
         let ast = parse("SELECT x.a, 1, '123' FROM x");
-        let expected = vec![Type::Bytes, Type::Int, Type::String];
+        let expected = ttys![Bytes, Int, String];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
@@ -178,7 +208,7 @@ mod tests {
         ));
 
         let ast = parse("SELECT NULL FROM x");
-        let expected = vec![Type::Null];
+        let expected = ttys![Null];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
