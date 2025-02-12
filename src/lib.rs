@@ -195,17 +195,7 @@ mod tests {
         let ctl = tables_fixture();
 
         let ast = parse("SELECT y.d, 1, '123', NULL FROM y");
-        let expected = vec![C::bytes(), C::int(), C::string()];
-
-        assert_eq!(solve_type(&ctl, ast), expected);
-    }
-
-    #[test]
-    fn resolve_simple_select_with_null() {
-        let ctl = tables_fixture();
-
-        let ast = parse("SELECT NULL FROM x");
-        let expected = vec![C::null()];
+        let expected = vec![C::bytes(), C::int(), C::string(), C::null()];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
