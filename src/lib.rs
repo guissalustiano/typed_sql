@@ -29,6 +29,12 @@ impl ColumnData {
             nullable: false,
         }
     }
+    fn int_nullable() -> Self {
+        ColumnData {
+            type_: Type::Int,
+            nullable: true,
+        }
+    }
     fn bytes() -> Self {
         ColumnData {
             type_: Type::Bytes,
@@ -153,8 +159,8 @@ mod tests {
     type C = ColumnData;
     fn tables_fixture() -> Catalog {
         /*
-        create table a(x text not null, y int not null);
-        create table b(w text not null, z int not null);
+        create table x(a text not null, b int);
+        create table y(c int not null, z bytea not null);
         */
 
         Catalog {
@@ -168,7 +174,7 @@ mod tests {
                         },
                         Column {
                             name: String::from("b"),
-                            data: ColumnData::int(),
+                            data: ColumnData::int_nullable(),
                         },
                     ],
                 },
@@ -194,7 +200,7 @@ mod tests {
         let ctl = tables_fixture();
 
         let ast = parse("SELECT x.a, x.b FROM x");
-        let expected = vec![C::string(), C::int()];
+        let expected = vec![C::string(), C::int_nullable()];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
