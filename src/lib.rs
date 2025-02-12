@@ -115,16 +115,12 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<ColumnData> {
                         ctg.find_type(t_name, c_name).unwrap()
                     }
                     NodeEnum::AConst(c) => match c.val.as_ref() {
-                        Some(Val::Ival(_)) => ColumnData { type_: Type::Int },
-                        Some(Val::Fval(_)) => ColumnData { type_: Type::Float },
-                        Some(Val::Boolval(_)) => ColumnData {
-                            type_: Type::Boolean,
-                        },
-                        Some(Val::Sval(_)) => ColumnData {
-                            type_: Type::String,
-                        },
-                        Some(Val::Bsval(_)) => ColumnData { type_: Type::Bytes },
-                        None => ColumnData { type_: Type::Null },
+                        Some(Val::Ival(_)) => ColumnData::int(),
+                        Some(Val::Fval(_)) => ColumnData::float(),
+                        Some(Val::Boolval(_)) => ColumnData::boolean(),
+                        Some(Val::Sval(_)) => ColumnData::string(),
+                        Some(Val::Bsval(_)) => ColumnData::bytes(),
+                        None => ColumnData::null(),
                     },
                     _ => unimplemented!("column"),
                 }
@@ -139,6 +135,7 @@ mod tests {
     use super::parse;
     use super::*;
 
+    type C = ColumnData;
     fn tables_fixture() -> Catalog {
         /*
         create table a(x text not null, y int not null);
@@ -152,13 +149,11 @@ mod tests {
                     columns: vec![
                         Column {
                             name: String::from("a"),
-                            data: ColumnData {
-                                type_: Type::String,
-                            },
+                            data: ColumnData::string(),
                         },
                         Column {
                             name: String::from("b"),
-                            data: ColumnData { type_: Type::Int },
+                            data: ColumnData::int(),
                         },
                     ],
                 },
@@ -167,11 +162,11 @@ mod tests {
                     columns: vec![
                         Column {
                             name: String::from("c"),
-                            data: ColumnData { type_: Type::Int },
+                            data: ColumnData::int(),
                         },
                         Column {
                             name: String::from("d"),
-                            data: ColumnData { type_: Type::Bytes },
+                            data: ColumnData::bytes(),
                         },
                     ],
                 },
@@ -179,7 +174,6 @@ mod tests {
         }
     }
 
-    type C = ColumnData;
     #[test]
     fn resolve_simple_select() {
         let ctl = tables_fixture();
