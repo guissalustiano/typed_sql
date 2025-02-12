@@ -15,6 +15,31 @@ pub struct ColumnData {
     pub type_: Type,
 }
 
+impl ColumnData {
+    fn string() -> Self {
+        ColumnData {
+            type_: Type::String,
+        }
+    }
+    fn int() -> Self {
+        ColumnData { type_: Type::Int }
+    }
+    fn bytes() -> Self {
+        ColumnData { type_: Type::Bytes }
+    }
+    fn boolean() -> Self {
+        ColumnData {
+            type_: Type::Boolean,
+        }
+    }
+    fn float() -> Self {
+        ColumnData { type_: Type::Float }
+    }
+    fn null() -> Self {
+        ColumnData { type_: Type::Null }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
@@ -33,11 +58,6 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    #[cfg(test)]
-    fn new(tables: Vec<Table>) -> Self {
-        Catalog { tables }
-    }
-
     fn find_type(&self, t_name: &str, c_name: &str) -> Option<ColumnData> {
         self.tables
             .iter()
@@ -66,58 +86,6 @@ fn parse(sql: &str) -> NodeEnum {
         .clone()
 }
 
-#[cfg(test)]
-macro_rules! tables {
-    (
-        $($table_name:ident {
-            $($column_name:ident => $column_type:ident),* $(,)?
-        }),* $(,)?
-    ) => {
-        {
-            let mut tables = Vec::new();
-
-            $(
-                let mut columns = Vec::new();
-
-                $(
-                    columns.push(Column {
-                        name: stringify!($column_name).to_string(),
-                        data: ColumnData{
-                            type_: Type::$column_type,
-                        }
-                    });
-                )*
-
-                tables.push(Table {
-                    name: stringify!($table_name).to_string(),
-                    columns: columns,
-                });
-            )*
-
-            tables
-        }
-    };
-}
-
-#[cfg(test)]
-macro_rules! ttys {
-    (
-        $($type:ident),*
-    ) => {
-        {
-            let mut c = Vec::new();
-
-            $(
-                c.push(ColumnData{
-                    type_: Type::$type,
-                });
-            )*
-
-            c
-        }
-    };
-}
-
 pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<ColumnData> {
     match stmt {
         NodeEnum::SelectStmt(s) => s
@@ -143,6 +111,7 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<ColumnData> {
                             panic!("invalid name, use table.column")
                         };
 
+                        dbg!(&(t_name, c_name));
                         ctg.find_type(t_name, c_name).unwrap()
                     }
                     NodeEnum::AConst(c) => match c.val.as_ref() {
@@ -170,45 +139,73 @@ mod tests {
     use super::parse;
     use super::*;
 
+    fn tables_fixture() -> Catalog {
+        /*
+        create table a(x text not null, y int not null);
+        create table b(w text not null, z int not null);
+        */
+
+        Catalog {
+            tables: vec![
+                Table {
+                    name: String::from("x"),
+                    columns: vec![
+                        Column {
+                            name: String::from("a"),
+                            data: ColumnData {
+                                type_: Type::String,
+                            },
+                        },
+                        Column {
+                            name: String::from("b"),
+                            data: ColumnData { type_: Type::Int },
+                        },
+                    ],
+                },
+                Table {
+                    name: String::from("y"),
+                    columns: vec![
+                        Column {
+                            name: String::from("c"),
+                            data: ColumnData { type_: Type::Int },
+                        },
+                        Column {
+                            name: String::from("d"),
+                            data: ColumnData { type_: Type::Bytes },
+                        },
+                    ],
+                },
+            ],
+        }
+    }
+
+    type C = ColumnData;
     #[test]
     fn resolve_simple_select() {
-        let ctl = Catalog::new(tables!(
-            x {
-                a => String,
-                b => Int,
-            },
-        ));
+        let ctl = tables_fixture();
 
         let ast = parse("SELECT x.a, x.b FROM x");
-        let expected = ttys![String, Int];
+        let expected = vec![C::string(), C::int()];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
 
     #[test]
     fn resolve_simple_select_with_literal() {
-        let ctl = Catalog::new(tables!(
-            x {
-                a => Bytes,
-            },
-        ));
+        let ctl = tables_fixture();
 
-        let ast = parse("SELECT x.a, 1, '123' FROM x");
-        let expected = ttys![Bytes, Int, String];
+        let ast = parse("SELECT y.d, 1, '123', NULL FROM y");
+        let expected = vec![C::bytes(), C::int(), C::string()];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
 
     #[test]
     fn resolve_simple_select_with_null() {
-        let ctl = Catalog::new(tables!(
-            x {
-                a => Bytes,
-            },
-        ));
+        let ctl = tables_fixture();
 
         let ast = parse("SELECT NULL FROM x");
-        let expected = ttys![Null];
+        let expected = vec![C::null()];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
