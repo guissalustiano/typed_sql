@@ -112,15 +112,57 @@ fn parse(sql: &str) -> NodeEnum {
 pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<ColumnData> {
     match stmt {
         NodeEnum::SelectStmt(s) => {
+            // dbg!(&s.from_clause);
             let from: Vec<_> = s
                 .from_clause
                 .iter()
-                .map(|n| match n.node.as_ref().expect("from.node") {
-                    NodeEnum::RangeVar(rv) => ctg
-                        .find_table(rv.relname.as_str())
-                        .expect("table not found"),
+                .map(|n| match dbg!(n.node.as_ref().expect("from.node")) {
+                    NodeEnum::RangeVar(rv) => {
+                        let t = ctg
+                            .find_table(rv.relname.as_str())
+                            .expect("table not found")
+                            .clone();
+                        vec![t]
+                    }
+                    NodeEnum::JoinExpr(je) => {
+                        let NodeEnum::RangeVar(larg) = je
+                            .larg
+                            .as_ref()
+                            .expect("larg")
+                            .node
+                            .as_ref()
+                            .expect("larg.node")
+                        else {
+                            unimplemented!("larg");
+                        };
+                        let NodeEnum::RangeVar(rarg) = je
+                            .rarg
+                            .as_ref()
+                            .expect("rarg")
+                            .node
+                            .as_ref()
+                            .expect("rarg.node")
+                        else {
+                            unimplemented!("rarg");
+                        };
+
+                        let t1 = ctg
+                            .find_table(larg.relname.as_str())
+                            .expect("table not found")
+                            .clone();
+                        let mut t2 = ctg
+                            .find_table(rarg.relname.as_str())
+                            .expect("table not found")
+                            .clone();
+                        for c in t2.columns.iter_mut() {
+                            c.data.nullable = true
+                        }
+
+                        vec![t1, t2]
+                    }
                     _ => unimplemented!("relname"),
                 })
+                .flatten()
                 .collect();
             dbg!(&from);
 
@@ -246,5 +288,15 @@ mod tests {
         let ast = parse("SELECT x.a FROM y");
 
         solve_type(&ctl, ast);
+    }
+
+    #[test]
+    fn left_join_is_marked_as_null() {
+        let ctl = tables_fixture();
+
+        let ast = parse("SELECT x.a, y.c FROM x LEFT JOIN y ON x.b = y.c");
+        let expected = vec![C::string(), C::int_nullable()];
+
+        assert_eq!(solve_type(&ctl, ast), expected);
     }
 }
