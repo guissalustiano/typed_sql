@@ -79,10 +79,12 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    fn find_table(&self, t_name: &str) -> Option<&Table> {
+        self.tables.iter().find(|t| t.name == t_name)
+    }
+
     fn find_type(&self, t_name: &str, c_name: &str) -> Option<ColumnData> {
-        self.tables
-            .iter()
-            .find(|t| t.name == t_name)?
+        self.find_table(t_name)?
             .columns
             .iter()
             .find(|c| c.name == c_name)
@@ -109,44 +111,64 @@ fn parse(sql: &str) -> NodeEnum {
 
 pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<ColumnData> {
     match stmt {
-        NodeEnum::SelectStmt(s) => s
-            .target_list
-            .iter()
-            .map(|target| {
-                let NodeEnum::ResTarget(target) = target.node.as_ref().unwrap() else {
-                    unimplemented!("target")
-                };
-                let target = target.val.as_ref().unwrap().node.as_ref().unwrap();
+        NodeEnum::SelectStmt(s) => {
+            let from: Vec<_> = s
+                .from_clause
+                .iter()
+                .map(|n| match n.node.as_ref().expect("from.node") {
+                    NodeEnum::RangeVar(rv) => ctg
+                        .find_table(rv.relname.as_str())
+                        .expect("table not found"),
+                    _ => unimplemented!("relname"),
+                })
+                .collect();
+            dbg!(&from);
 
-                match target {
-                    NodeEnum::ColumnRef(cr) => {
-                        let &[t_name, c_name] = &cr
-                            .fields
-                            .iter()
-                            .map(|f| match f.node.as_ref().unwrap() {
-                                NodeEnum::String(pg_query::protobuf::String { sval }) => sval,
-                                _ => unimplemented!("column ref"),
-                            })
-                            .collect::<Vec<_>>()[..]
-                        else {
-                            panic!("invalid name, use table.column")
-                        };
+            s.target_list
+                .iter()
+                .map(|target| {
+                    let NodeEnum::ResTarget(target) = target.node.as_ref().unwrap() else {
+                        unimplemented!("target")
+                    };
+                    let target = target.val.as_ref().unwrap().node.as_ref().unwrap();
 
-                        dbg!(&(t_name, c_name));
-                        ctg.find_type(t_name, c_name).unwrap()
+                    match target {
+                        NodeEnum::ColumnRef(cr) => {
+                            let &[t_name, c_name] = &cr
+                                .fields
+                                .iter()
+                                .map(|f| match f.node.as_ref().unwrap() {
+                                    NodeEnum::String(pg_query::protobuf::String { sval }) => sval,
+                                    _ => unimplemented!("column ref"),
+                                })
+                                .collect::<Vec<_>>()[..]
+                            else {
+                                panic!("invalid name, use table.column")
+                            };
+
+                            // find type
+                            from.iter()
+                                .find(|t| &t.name == t_name)
+                                .expect("selected table not found")
+                                .columns
+                                .iter()
+                                .find(|c| &c.name == c_name)
+                                .expect("selected column not found")
+                                .data
+                        }
+                        NodeEnum::AConst(c) => match c.val.as_ref() {
+                            Some(Val::Ival(_)) => ColumnData::int(),
+                            Some(Val::Fval(_)) => ColumnData::float(),
+                            Some(Val::Boolval(_)) => ColumnData::boolean(),
+                            Some(Val::Sval(_)) => ColumnData::string(),
+                            Some(Val::Bsval(_)) => ColumnData::bytes(),
+                            None => ColumnData::null(),
+                        },
+                        _ => unimplemented!("column"),
                     }
-                    NodeEnum::AConst(c) => match c.val.as_ref() {
-                        Some(Val::Ival(_)) => ColumnData::int(),
-                        Some(Val::Fval(_)) => ColumnData::float(),
-                        Some(Val::Boolval(_)) => ColumnData::boolean(),
-                        Some(Val::Sval(_)) => ColumnData::string(),
-                        Some(Val::Bsval(_)) => ColumnData::bytes(),
-                        None => ColumnData::null(),
-                    },
-                    _ => unimplemented!("column"),
-                }
-            })
-            .collect(),
+                })
+                .collect()
+        }
         _ => unimplemented!("stmt"),
     }
 }
@@ -160,7 +182,7 @@ mod tests {
     fn tables_fixture() -> Catalog {
         /*
         create table x(a text not null, b int);
-        create table y(c int not null, z bytea not null);
+        create table y(c int not null, d bytea not null);
         */
 
         Catalog {
@@ -213,5 +235,16 @@ mod tests {
         let expected = vec![C::bytes(), C::int(), C::string(), C::null()];
 
         assert_eq!(solve_type(&ctl, ast), expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "selected table not found")]
+    fn resolve_based_on_from() {
+        let ctl = tables_fixture();
+
+        // x is not present on from clause
+        let ast = parse("SELECT x.a FROM y");
+
+        solve_type(&ctl, ast);
     }
 }
