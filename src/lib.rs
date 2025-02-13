@@ -1,4 +1,7 @@
-use pg_query::{protobuf::a_const::Val, NodeEnum};
+use pg_query::{
+    protobuf::{a_const::Val, JoinType},
+    NodeEnum,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
@@ -154,8 +157,15 @@ pub(crate) fn solve_type(ctg: &Catalog, stmt: NodeEnum) -> Vec<ColumnData> {
                             .find_table(rarg.relname.as_str())
                             .expect("table not found")
                             .clone();
-                        for c in t2.columns.iter_mut() {
-                            c.data.nullable = true
+
+                        match je.jointype() {
+                            JoinType::JoinInner => {}
+                            JoinType::JoinLeft => {
+                                for c in t2.columns.iter_mut() {
+                                    c.data.nullable = true
+                                }
+                            }
+                            _ => unimplemented!("join type"),
                         }
 
                         vec![t1, t2]
@@ -296,6 +306,16 @@ mod tests {
 
         let ast = parse("SELECT x.a, y.c FROM x LEFT JOIN y ON x.b = y.c");
         let expected = vec![C::string(), C::int_nullable()];
+
+        assert_eq!(solve_type(&ctl, ast), expected);
+    }
+
+    #[test]
+    fn inner_join_is_not_marked_as_null() {
+        let ctl = tables_fixture();
+
+        let ast = parse("SELECT x.a, y.c FROM x INNER JOIN y ON x.b = y.c");
+        let expected = vec![C::string(), C::int()];
 
         assert_eq!(solve_type(&ctl, ast), expected);
     }
