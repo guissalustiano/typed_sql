@@ -20,43 +20,43 @@ pub struct ColumnData {
 }
 
 impl ColumnData {
-    fn string() -> Self {
+    pub fn string() -> Self {
         ColumnData {
             type_: Type::String,
             nullable: false,
         }
     }
-    fn int() -> Self {
+    pub fn int() -> Self {
         ColumnData {
             type_: Type::Int,
             nullable: false,
         }
     }
-    fn int_nullable() -> Self {
+    pub fn int_nullable() -> Self {
         ColumnData {
             type_: Type::Int,
             nullable: true,
         }
     }
-    fn bytes() -> Self {
+    pub fn bytes() -> Self {
         ColumnData {
             type_: Type::Bytes,
             nullable: false,
         }
     }
-    fn boolean() -> Self {
+    pub fn boolean() -> Self {
         ColumnData {
             type_: Type::Boolean,
             nullable: false,
         }
     }
-    fn float() -> Self {
+    pub fn float() -> Self {
         ColumnData {
             type_: Type::Float,
             nullable: false,
         }
     }
-    fn null() -> Self {
+    pub fn null() -> Self {
         ColumnData {
             type_: Type::Null,
             nullable: false,
@@ -82,18 +82,6 @@ pub struct Catalog<'a> {
 }
 
 impl Catalog<'_> {
-    fn find_table(&self, t_name: &str) -> Option<&Table> {
-        self.tables.iter().find(|t| t.name == t_name)
-    }
-
-    fn find_type(&self, t_name: &str, c_name: &str) -> Option<ColumnData> {
-        self.find_table(t_name)?
-            .columns
-            .iter()
-            .find(|c| c.name == c_name)
-            .map(|c| c.data)
-    }
-
     fn as_ctx(&self) -> Ctx {
         self.tables
             .iter()
@@ -157,17 +145,6 @@ pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: &[Node]) -> Ctx<'a> {
                 ctx
             }
             NodeEnum::JoinExpr(je) => {
-                let NodeEnum::RangeVar(rarg) = je
-                    .rarg
-                    .as_ref()
-                    .expect("rarg")
-                    .node
-                    .as_ref()
-                    .expect("rarg.node")
-                else {
-                    unimplemented!("rarg");
-                };
-
                 let lctx = solve_from_table(sys_ctx, Vec::new(), je.larg.as_ref().expect("larg"));
                 ctx.extend(lctx);
 
@@ -196,7 +173,7 @@ pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: &[Node]) -> Ctx<'a> {
         .collect()
 }
 
-pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
+pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
     match stmt {
         NodeEnum::SelectStmt(s) => {
             let ctx = solve_from(ctg.as_ctx(), &s.from_clause);
