@@ -232,6 +232,10 @@ pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
                 })
                 .collect()
         }
+        NodeEnum::DeleteStmt(s) => {
+            dbg!(s);
+            vec![CtxEntry::new_anonymous(ColumnData::int())]
+        }
         _ => unimplemented!("stmt"),
     }
 }
@@ -381,6 +385,16 @@ mod tests {
             column: Some("v"),
             data: C::string(),
         }];
+
+        assert_eq!(solve_type(&ctl, &ast), expected);
+    }
+
+    #[test]
+    fn supports_delete() {
+        let ctl = tables_fixture();
+
+        let ast = parse("DELETE FROM x WHERE a < 0");
+        let expected = vec![CtxEntry::new_anonymous(C::int())];
 
         assert_eq!(solve_type(&ctl, &ast), expected);
     }
