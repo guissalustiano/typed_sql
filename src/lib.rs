@@ -149,7 +149,7 @@ impl<'a> CtxEntry<'a> {
     }
 }
 
-pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: Vec<Node>) -> Ctx<'a> {
+pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: &[Node]) -> Ctx<'a> {
     fn solve_from_table<'a>(sys_ctx: &Ctx<'a>, mut ctx: Ctx<'a>, n: &Node) -> Ctx<'a> {
         match n.node.as_ref().expect("from.node") {
             NodeEnum::RangeVar(rv) => {
@@ -196,10 +196,10 @@ pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: Vec<Node>) -> Ctx<'a> {
         .collect()
 }
 
-pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: NodeEnum) -> Ctx<'a> {
+pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
     match stmt {
         NodeEnum::SelectStmt(s) => {
-            let ctx = solve_from(ctg.as_ctx(), s.from_clause);
+            let ctx = solve_from(ctg.as_ctx(), &s.from_clause);
 
             s.target_list
                 .iter()
@@ -207,6 +207,7 @@ pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: NodeEnum) -> Ctx<'a> {
                     let NodeEnum::ResTarget(target) = target.node.as_ref().unwrap() else {
                         unimplemented!("target")
                     };
+                    let alias_name = target.name.as_str();
                     let target = target.val.as_ref().unwrap().node.as_ref().unwrap();
 
                     match target {
@@ -224,12 +225,22 @@ pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: NodeEnum) -> Ctx<'a> {
                             };
 
                             // find type
-                            *ctx.iter()
+                            let e = *ctx
+                                .iter()
                                 .find(|e| {
                                     e.table.as_deref() == Some(&t_name)
                                         && e.column.as_deref() == Some(c_name)
                                 })
-                                .expect("selected table/name not found")
+                                .expect("selected table/name not found");
+
+                            match alias_name {
+                                "" => e,
+                                alias_name => CtxEntry {
+                                    table: None,
+                                    column: Some(alias_name),
+                                    ..e
+                                },
+                            }
                         }
                         NodeEnum::AConst(c) => match c.val.as_ref() {
                             Some(Val::Ival(_)) => CtxEntry::new_anonymous(ColumnData::int()),
@@ -313,7 +324,7 @@ mod tests {
             CtxEntry::new("x", "b", C::int_nullable()),
         ];
 
-        assert_eq!(solve_type(&ctl, ast), expected);
+        assert_eq!(solve_type(&ctl, &ast), expected);
     }
 
     #[test]
@@ -328,7 +339,7 @@ mod tests {
             CtxEntry::new_anonymous(C::null()),
         ];
 
-        assert_eq!(solve_type(&ctl, ast), expected);
+        assert_eq!(solve_type(&ctl, &ast), expected);
     }
 
     #[test]
@@ -339,7 +350,7 @@ mod tests {
         // x is not present on from clause
         let ast = parse("SELECT x.a FROM y");
 
-        solve_type(&ctl, ast);
+        solve_type(&ctl, &ast);
     }
 
     #[test]
@@ -352,7 +363,7 @@ mod tests {
             CtxEntry::new("y", "c", C::int_nullable()),
         ];
 
-        assert_eq!(solve_type(&ctl, ast), expected);
+        assert_eq!(solve_type(&ctl, &ast), expected);
     }
 
     #[test]
@@ -365,7 +376,7 @@ mod tests {
             CtxEntry::new("y", "c", C::int()),
         ];
 
-        assert_eq!(solve_type(&ctl, ast), expected);
+        assert_eq!(solve_type(&ctl, &ast), expected);
     }
 
     #[test]
@@ -380,6 +391,20 @@ mod tests {
             CtxEntry::new("w", "e", C::int()),
         ];
 
-        assert_eq!(solve_type(&ctl, ast), expected);
+        assert_eq!(solve_type(&ctl, &ast), expected);
+    }
+
+    #[test]
+    fn select_support_alias() {
+        let ctl = tables_fixture();
+
+        let ast = parse("SELECT x.a as v FROM x");
+        let expected = vec![CtxEntry {
+            table: None,
+            column: Some("v"),
+            data: C::string(),
+        }];
+
+        assert_eq!(solve_type(&ctl, &ast), expected);
     }
 }
