@@ -150,69 +150,68 @@ impl<'a> CtxEntry<'a> {
 }
 
 pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: NodeEnum) -> Ctx<'a> {
+    let sys_ctx = ctg.as_ctx();
     match stmt {
         NodeEnum::SelectStmt(s) => {
-            // dbg!(&s.from_clause);
-            // let from: Vec<_> = s
-            //     .from_clause
-            //     .iter()
-            //     .map(|n| match dbg!(n.node.as_ref().expect("from.node")) {
-            //         NodeEnum::RangeVar(rv) => {
-            //             let t = ctg
-            //                 .find_table(rv.relname.as_str())
-            //                 .expect("table not found")
-            //                 .clone();
-            //             vec![t];
-            //         }
-            //         NodeEnum::JoinExpr(je) => {
-            //             let NodeEnum::RangeVar(larg) = je
-            //                 .larg
-            //                 .as_ref()
-            //                 .expect("larg")
-            //                 .node
-            //                 .as_ref()
-            //                 .expect("larg.node")
-            //             else {
-            //                 unimplemented!("larg");
-            //             };
-            //             let NodeEnum::RangeVar(rarg) = je
-            //                 .rarg
-            //                 .as_ref()
-            //                 .expect("rarg")
-            //                 .node
-            //                 .as_ref()
-            //                 .expect("rarg.node")
-            //             else {
-            //                 unimplemented!("rarg");
-            //             };
+            let ctx: Vec<_> =
+                s.from_clause
+                    .iter()
+                    .fold(Vec::with_capacity(sys_ctx.len()), |mut ctx, n| {
+                        match n.node.as_ref().expect("from.node") {
+                            NodeEnum::RangeVar(rv) => {
+                                ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&rv.relname)));
+                                ctx
+                            }
+                            NodeEnum::JoinExpr(je) => {
+                                let NodeEnum::RangeVar(larg) = je
+                                    .larg
+                                    .as_ref()
+                                    .expect("larg")
+                                    .node
+                                    .as_ref()
+                                    .expect("larg.node")
+                                else {
+                                    unimplemented!("larg");
+                                };
+                                let NodeEnum::RangeVar(rarg) = je
+                                    .rarg
+                                    .as_ref()
+                                    .expect("rarg")
+                                    .node
+                                    .as_ref()
+                                    .expect("rarg.node")
+                                else {
+                                    unimplemented!("rarg");
+                                };
 
-            //             let t1 = ctg
-            //                 .find_table(larg.relname.as_str())
-            //                 .expect("table not found")
-            //                 .clone();
-            //             let mut t2 = ctg
-            //                 .find_table(rarg.relname.as_str())
-            //                 .expect("table not found")
-            //                 .clone();
+                                ctx.extend(
+                                    sys_ctx.iter().filter(|e| e.table == Some(&larg.relname)),
+                                );
 
-            //             match je.jointype() {
-            //                 JoinType::JoinInner => {}
-            //                 JoinType::JoinLeft => {
-            //                     for c in t2.columns.iter_mut() {
-            //                         c.data.nullable = true
-            //                     }
-            //                 }
-            //                 _ => unimplemented!("join type"),
-            //             }
+                                match je.jointype() {
+                                    JoinType::JoinInner => ctx.extend(
+                                        sys_ctx.iter().filter(|e| e.table == Some(&rarg.relname)),
+                                    ),
+                                    JoinType::JoinLeft => ctx.extend(
+                                        sys_ctx
+                                            .iter()
+                                            .filter(|e| e.table == Some(&rarg.relname))
+                                            .map(|e| CtxEntry {
+                                                data: ColumnData {
+                                                    nullable: true,
+                                                    ..e.data
+                                                },
+                                                ..*e
+                                            }),
+                                    ),
+                                    _ => unimplemented!("join type"),
+                                };
 
-            //             vec![t1, t2];
-            //         }
-            //         _ => unimplemented!("relname"),
-            //     })
-            //     .flatten()
-            //     .collect();
-            // dbg!(&from);
-            let ctx = ctg.as_ctx();
+                                ctx
+                            }
+                            _ => unimplemented!("relname"),
+                        }
+                    });
 
             s.target_list
                 .iter()
@@ -345,8 +344,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "selected table not found")]
-    #[ignore]
+    #[should_panic(expected = "selected table/name not found")]
     fn resolve_based_on_from() {
         let ctl = tables_fixture();
 
@@ -357,7 +355,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn left_join_is_marked_as_null() {
         let ctl = tables_fixture();
 
@@ -371,7 +368,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn inner_join_is_not_marked_as_null() {
         let ctl = tables_fixture();
 
