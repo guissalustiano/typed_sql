@@ -1,6 +1,6 @@
 use pg_query::{
     protobuf::{a_const::Val, JoinType},
-    NodeEnum,
+    Node, NodeEnum,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,69 +149,68 @@ impl<'a> CtxEntry<'a> {
     }
 }
 
+pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: Vec<Node>) -> Ctx<'a> {
+    from.iter()
+        .fold(Vec::with_capacity(sys_ctx.len()), |mut ctx, n| {
+            match n.node.as_ref().expect("from.node") {
+                NodeEnum::RangeVar(rv) => {
+                    ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&rv.relname)));
+                    ctx
+                }
+                NodeEnum::JoinExpr(je) => {
+                    let NodeEnum::RangeVar(larg) = je
+                        .larg
+                        .as_ref()
+                        .expect("larg")
+                        .node
+                        .as_ref()
+                        .expect("larg.node")
+                    else {
+                        unimplemented!("larg");
+                    };
+                    let NodeEnum::RangeVar(rarg) = je
+                        .rarg
+                        .as_ref()
+                        .expect("rarg")
+                        .node
+                        .as_ref()
+                        .expect("rarg.node")
+                    else {
+                        unimplemented!("rarg");
+                    };
+
+                    ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&larg.relname)));
+
+                    match je.jointype() {
+                        JoinType::JoinInner => {
+                            ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&rarg.relname)))
+                        }
+                        JoinType::JoinLeft => ctx.extend(
+                            sys_ctx
+                                .iter()
+                                .filter(|e| e.table == Some(&rarg.relname))
+                                .map(|e| CtxEntry {
+                                    data: ColumnData {
+                                        nullable: true,
+                                        ..e.data
+                                    },
+                                    ..*e
+                                }),
+                        ),
+                        _ => unimplemented!("join type"),
+                    };
+
+                    ctx
+                }
+                _ => unimplemented!("relname"),
+            }
+        })
+}
+
 pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: NodeEnum) -> Ctx<'a> {
-    let sys_ctx = ctg.as_ctx();
     match stmt {
         NodeEnum::SelectStmt(s) => {
-            let ctx: Vec<_> =
-                s.from_clause
-                    .iter()
-                    .fold(Vec::with_capacity(sys_ctx.len()), |mut ctx, n| {
-                        match n.node.as_ref().expect("from.node") {
-                            NodeEnum::RangeVar(rv) => {
-                                ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&rv.relname)));
-                                ctx
-                            }
-                            NodeEnum::JoinExpr(je) => {
-                                let NodeEnum::RangeVar(larg) = je
-                                    .larg
-                                    .as_ref()
-                                    .expect("larg")
-                                    .node
-                                    .as_ref()
-                                    .expect("larg.node")
-                                else {
-                                    unimplemented!("larg");
-                                };
-                                let NodeEnum::RangeVar(rarg) = je
-                                    .rarg
-                                    .as_ref()
-                                    .expect("rarg")
-                                    .node
-                                    .as_ref()
-                                    .expect("rarg.node")
-                                else {
-                                    unimplemented!("rarg");
-                                };
-
-                                ctx.extend(
-                                    sys_ctx.iter().filter(|e| e.table == Some(&larg.relname)),
-                                );
-
-                                match je.jointype() {
-                                    JoinType::JoinInner => ctx.extend(
-                                        sys_ctx.iter().filter(|e| e.table == Some(&rarg.relname)),
-                                    ),
-                                    JoinType::JoinLeft => ctx.extend(
-                                        sys_ctx
-                                            .iter()
-                                            .filter(|e| e.table == Some(&rarg.relname))
-                                            .map(|e| CtxEntry {
-                                                data: ColumnData {
-                                                    nullable: true,
-                                                    ..e.data
-                                                },
-                                                ..*e
-                                            }),
-                                    ),
-                                    _ => unimplemented!("join type"),
-                                };
-
-                                ctx
-                            }
-                            _ => unimplemented!("relname"),
-                        }
-                    });
+            let ctx = solve_from(ctg.as_ctx(), s.from_clause);
 
             s.target_list
                 .iter()
