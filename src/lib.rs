@@ -150,61 +150,50 @@ impl<'a> CtxEntry<'a> {
 }
 
 pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: Vec<Node>) -> Ctx<'a> {
-    from.iter()
-        .fold(Vec::with_capacity(sys_ctx.len()), |mut ctx, n| {
-            match n.node.as_ref().expect("from.node") {
-                NodeEnum::RangeVar(rv) => {
-                    ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&rv.relname)));
-                    ctx
-                }
-                NodeEnum::JoinExpr(je) => {
-                    let NodeEnum::RangeVar(larg) = je
-                        .larg
-                        .as_ref()
-                        .expect("larg")
-                        .node
-                        .as_ref()
-                        .expect("larg.node")
-                    else {
-                        unimplemented!("larg");
-                    };
-                    let NodeEnum::RangeVar(rarg) = je
-                        .rarg
-                        .as_ref()
-                        .expect("rarg")
-                        .node
-                        .as_ref()
-                        .expect("rarg.node")
-                    else {
-                        unimplemented!("rarg");
-                    };
-
-                    ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&larg.relname)));
-
-                    match je.jointype() {
-                        JoinType::JoinInner => {
-                            ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&rarg.relname)))
-                        }
-                        JoinType::JoinLeft => ctx.extend(
-                            sys_ctx
-                                .iter()
-                                .filter(|e| e.table == Some(&rarg.relname))
-                                .map(|e| CtxEntry {
-                                    data: ColumnData {
-                                        nullable: true,
-                                        ..e.data
-                                    },
-                                    ..*e
-                                }),
-                        ),
-                        _ => unimplemented!("join type"),
-                    };
-
-                    ctx
-                }
-                _ => unimplemented!("relname"),
+    fn solve_from_table<'a>(sys_ctx: &Ctx<'a>, mut ctx: Ctx<'a>, n: &Node) -> Ctx<'a> {
+        match n.node.as_ref().expect("from.node") {
+            NodeEnum::RangeVar(rv) => {
+                ctx.extend(sys_ctx.iter().filter(|e| e.table == Some(&rv.relname)));
+                ctx
             }
-        })
+            NodeEnum::JoinExpr(je) => {
+                let NodeEnum::RangeVar(rarg) = je
+                    .rarg
+                    .as_ref()
+                    .expect("rarg")
+                    .node
+                    .as_ref()
+                    .expect("rarg.node")
+                else {
+                    unimplemented!("rarg");
+                };
+
+                let lctx = solve_from_table(sys_ctx, Vec::new(), je.larg.as_ref().expect("larg"));
+                ctx.extend(lctx);
+
+                let rctx = solve_from_table(sys_ctx, Vec::new(), je.rarg.as_ref().expect("rarg"));
+                match je.jointype() {
+                    JoinType::JoinInner => ctx.extend(rctx),
+                    JoinType::JoinLeft => ctx.extend(rctx.iter().map(|e| CtxEntry {
+                        data: ColumnData {
+                            nullable: true,
+                            ..e.data
+                        },
+                        ..*e
+                    })),
+                    _ => unimplemented!("join type"),
+                };
+
+                ctx
+            }
+            _ => unimplemented!("relname"),
+        }
+    }
+
+    from.iter()
+        .map(|n| solve_from_table(&sys_ctx, Vec::new(), n))
+        .flatten()
+        .collect()
 }
 
 pub(crate) fn solve_type<'a>(ctg: &'a Catalog, stmt: NodeEnum) -> Ctx<'a> {
@@ -380,7 +369,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn multiple_join_works() {
         let ctl = tables_fixture();
 
