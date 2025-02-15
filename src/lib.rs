@@ -173,68 +173,72 @@ pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: &[Node]) -> Ctx<'a> {
         .collect()
 }
 
+pub(crate) fn solve_targets<'a>(ctx: Ctx<'a>, targets: &'a [Node]) -> Ctx<'a> {
+    fn solve_target<'a>(ctx: &Ctx<'a>, n: &'a Node) -> CtxEntry<'a> {
+        let NodeEnum::ResTarget(target) = n.node.as_ref().unwrap() else {
+            unimplemented!("target")
+        };
+        let alias_name = target.name.as_str();
+        let target = target.val.as_ref().unwrap().node.as_ref().unwrap();
+
+        match target {
+            NodeEnum::ColumnRef(cr) => {
+                let &[t_name, c_name] = &cr
+                    .fields
+                    .iter()
+                    .map(|f| match f.node.as_ref().unwrap() {
+                        NodeEnum::String(pg_query::protobuf::String { sval }) => sval,
+                        _ => unimplemented!("column ref"),
+                    })
+                    .collect::<Vec<_>>()[..]
+                else {
+                    panic!("invalid name, use table.column")
+                };
+
+                // find type
+                let e = *ctx
+                    .iter()
+                    .find(|e| {
+                        e.table.as_deref() == Some(&t_name) && e.column.as_deref() == Some(c_name)
+                    })
+                    .expect("selected table/name not found");
+
+                match alias_name {
+                    "" => e,
+                    alias_name => CtxEntry {
+                        table: None,
+                        column: Some(alias_name),
+                        ..e
+                    },
+                }
+            }
+            NodeEnum::AConst(c) => match c.val.as_ref() {
+                Some(Val::Ival(_)) => CtxEntry::new_anonymous(ColumnData::int()),
+                Some(Val::Fval(_)) => CtxEntry::new_anonymous(ColumnData::float()),
+                Some(Val::Boolval(_)) => CtxEntry::new_anonymous(ColumnData::boolean()),
+                Some(Val::Sval(_)) => CtxEntry::new_anonymous(ColumnData::string()),
+                Some(Val::Bsval(_)) => CtxEntry::new_anonymous(ColumnData::bytes()),
+                None => CtxEntry::new_anonymous(ColumnData::null()),
+            },
+            _ => unimplemented!("column"),
+        }
+    }
+
+    targets.iter().map(|n| solve_target(&ctx, n)).collect()
+}
+
 pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
     match stmt {
         NodeEnum::SelectStmt(s) => {
             let ctx = solve_from(ctg.as_ctx(), &s.from_clause);
-
-            s.target_list
-                .iter()
-                .map(|target| {
-                    let NodeEnum::ResTarget(target) = target.node.as_ref().unwrap() else {
-                        unimplemented!("target")
-                    };
-                    let alias_name = target.name.as_str();
-                    let target = target.val.as_ref().unwrap().node.as_ref().unwrap();
-
-                    match target {
-                        NodeEnum::ColumnRef(cr) => {
-                            let &[t_name, c_name] = &cr
-                                .fields
-                                .iter()
-                                .map(|f| match f.node.as_ref().unwrap() {
-                                    NodeEnum::String(pg_query::protobuf::String { sval }) => sval,
-                                    _ => unimplemented!("column ref"),
-                                })
-                                .collect::<Vec<_>>()[..]
-                            else {
-                                panic!("invalid name, use table.column")
-                            };
-
-                            // find type
-                            let e = *ctx
-                                .iter()
-                                .find(|e| {
-                                    e.table.as_deref() == Some(&t_name)
-                                        && e.column.as_deref() == Some(c_name)
-                                })
-                                .expect("selected table/name not found");
-
-                            match alias_name {
-                                "" => e,
-                                alias_name => CtxEntry {
-                                    table: None,
-                                    column: Some(alias_name),
-                                    ..e
-                                },
-                            }
-                        }
-                        NodeEnum::AConst(c) => match c.val.as_ref() {
-                            Some(Val::Ival(_)) => CtxEntry::new_anonymous(ColumnData::int()),
-                            Some(Val::Fval(_)) => CtxEntry::new_anonymous(ColumnData::float()),
-                            Some(Val::Boolval(_)) => CtxEntry::new_anonymous(ColumnData::boolean()),
-                            Some(Val::Sval(_)) => CtxEntry::new_anonymous(ColumnData::string()),
-                            Some(Val::Bsval(_)) => CtxEntry::new_anonymous(ColumnData::bytes()),
-                            None => CtxEntry::new_anonymous(ColumnData::null()),
-                        },
-                        _ => unimplemented!("column"),
-                    }
-                })
-                .collect()
+            solve_targets(ctx, &s.target_list)
         }
         NodeEnum::DeleteStmt(s) => {
+            if s.returning_list.is_empty() {
+                return vec![CtxEntry::new_anonymous(ColumnData::int())];
+            }
             dbg!(s);
-            vec![CtxEntry::new_anonymous(ColumnData::int())]
+            panic!("a");
         }
         _ => unimplemented!("stmt"),
     }
@@ -393,8 +397,19 @@ mod tests {
     fn supports_delete() {
         let ctl = tables_fixture();
 
-        let ast = parse("DELETE FROM x WHERE a < 0");
+        let ast = parse("DELETE FROM x WHERE x.b < 0");
         let expected = vec![CtxEntry::new_anonymous(C::int())];
+
+        assert_eq!(solve_type(&ctl, &ast), expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn supports_delete_with_returning() {
+        let ctl = tables_fixture();
+
+        let ast = parse("DELETE FROM x WHERE x.b < 0 returning x.a");
+        let expected = vec![CtxEntry::new_anonymous(C::string())];
 
         assert_eq!(solve_type(&ctl, &ast), expected);
     }
