@@ -1,8 +1,7 @@
 [package]
-name = "typed_sql"
+name = "tysql"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = { version = "1.0.95", features = ["backtrace"] }
 pg_query = "6.0.0"
