@@ -271,6 +271,16 @@ pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
             );
             solve_targets(ctx, &s.returning_list)
         }
+        NodeEnum::UpdateStmt(s) => {
+            if s.returning_list.is_empty() {
+                return vec![CtxEntry::new_anonymous(ColumnData::int())];
+            }
+            let ctx = solve_from_table(
+                &sys_ctx,
+                &NodeEnum::RangeVar(s.relation.clone().expect("relation")),
+            );
+            solve_targets(ctx, &s.returning_list)
+        }
         _ => unimplemented!("stmt"),
     }
 }
@@ -459,6 +469,26 @@ mod tests {
         let ctl = tables_fixture();
 
         let ast = parse("INSERT INTO x(a) VALUES('a') returning x.a");
+        let expected = vec![CtxEntry::new("x", "a", C::string())];
+
+        assert_eq!(solve_type(&ctl, &ast), expected);
+    }
+
+    #[test]
+    fn supports_update() {
+        let ctl = tables_fixture();
+
+        let ast = parse("UPDATE x SET a='a1'");
+        let expected = vec![CtxEntry::new_anonymous(C::int())];
+
+        assert_eq!(solve_type(&ctl, &ast), expected);
+    }
+
+    #[test]
+    fn supports_update_with_returning() {
+        let ctl = tables_fixture();
+
+        let ast = parse("UPDATE x SET a='a1' returning x.a");
         let expected = vec![CtxEntry::new("x", "a", C::string())];
 
         assert_eq!(solve_type(&ctl, &ast), expected);
