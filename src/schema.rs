@@ -1,11 +1,11 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
-    Int,
-    String,
-    Bytes,
+    Integer,
+    Text,
+    Bytea,
     Boolean,
-    Float,
-    Null,
+    Real,
+    Unknow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,25 +17,25 @@ pub struct ColumnData {
 impl ColumnData {
     pub fn string() -> Self {
         ColumnData {
-            type_: Type::String,
+            type_: Type::Text,
             nullable: false,
         }
     }
     pub fn int() -> Self {
         ColumnData {
-            type_: Type::Int,
+            type_: Type::Integer,
             nullable: false,
         }
     }
     pub fn int_nullable() -> Self {
         ColumnData {
-            type_: Type::Int,
+            type_: Type::Integer,
             nullable: true,
         }
     }
     pub fn bytes() -> Self {
         ColumnData {
-            type_: Type::Bytes,
+            type_: Type::Bytea,
             nullable: false,
         }
     }
@@ -47,13 +47,13 @@ impl ColumnData {
     }
     pub fn float() -> Self {
         ColumnData {
-            type_: Type::Float,
+            type_: Type::Real,
             nullable: false,
         }
     }
     pub fn null() -> Self {
         ColumnData {
-            type_: Type::Null,
+            type_: Type::Unknow,
             nullable: false,
         }
     }
