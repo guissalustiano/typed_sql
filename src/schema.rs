@@ -59,19 +59,19 @@ impl ColumnData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Column<'a> {
     pub name: &'a str,
     pub data: ColumnData,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Table<'a> {
     pub name: &'a str,
     pub columns: Vec<Column<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Catalog<'a> {
     pub tables: Vec<Table<'a>>,
 }

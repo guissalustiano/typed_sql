@@ -1,24 +1,20 @@
 use crate::schema::*;
-use std::collections::HashMap;
-
-use tokio_postgres::{Client, Error, NoTls};
+use itertools::Itertools;
 
 use crate::schema::Catalog;
 
-pub(crate) async fn get<'a>(client: &'a Client) -> eyre::Result<Catalog<'a>> {
-    query(&client).await
-}
-
-async fn query(client: &Client) -> eyre::Result<Catalog<'_>> {
-    struct C<'a> {
-        table_schema: &'a str,
-        table_name: &'a str,
-        column_name: &'a str,
+pub(crate) async fn catalog<'a, 'b>(
+    client: &'a impl tokio_postgres::GenericClient,
+) -> eyre::Result<Catalog<'b>> {
+    struct C {
+        table_schema: String,
+        table_name: String,
+        column_name: String,
         data_type: Type,
         is_nullable: bool,
     }
 
-    let rows = client
+    let tables = client
         .query(
             "SELECT 
                 t.table_schema,
@@ -33,7 +29,7 @@ async fn query(client: &Client) -> eyre::Result<Catalog<'_>> {
                     AND t.table_name = c.table_name
             WHERE 
                 t.table_schema NOT IN ('pg_catalog', 'information_schema')
-                AND t.table_type = IN ('BASE TABLE', 'VIEW')
+                AND t.table_type IN ('BASE TABLE', 'VIEW')
             ORDER BY 
                 t.table_schema,
                 t.table_name,
@@ -46,48 +42,98 @@ async fn query(client: &Client) -> eyre::Result<Catalog<'_>> {
             table_schema: r.get("table_schema"),
             table_name: r.get("table_name"),
             column_name: r.get("column_name"),
-            data_type: match r.get::<_, &str>("data_type") {
+            data_type: match r.get("data_type") {
                 "boolean" => Type::Boolean,
                 "text" | "character" | "character varying" => Type::Text,
                 "bytea" => Type::Bytea,
                 "integer" => Type::Integer,
                 "real" => Type::Real,
-                "bigint" => unimplemented!("data_type"),
-                "date" => unimplemented!("data_type"),
-                "double precision" => unimplemented!("data_type"),
-                "inet" => unimplemented!("data_type"),
-                "int4range" => unimplemented!("data_type"),
-                "int8range" => unimplemented!("data_type"),
-                "json" => unimplemented!("data_type"),
-                "jsonb" => unimplemented!("data_type"),
-                "numeric" => unimplemented!("data_type"),
-                "smallint" => unimplemented!("data_type"),
-                "timestamp with time zone" => unimplemented!("data_type"),
-                "timestamp without time zone" => unimplemented!("data_type"),
-                "tstzmultirange" => unimplemented!("data_type"),
-                "tstzrange" => unimplemented!("data_type"),
-                "uuid" => unimplemented!("data_type"),
-                "ARRAY" => unimplemented!("data_type"),
-                "USER-DEFINED" => unimplemented!("data_type"),
-                _ => unimplemented!("data_type"),
+                "bigint"
+                | "date"
+                | "double precision"
+                | "inet"
+                | "int4range"
+                | "int8range"
+                | "json"
+                | "jsonb"
+                | "numeric"
+                | "smallint"
+                | "timestamp with time zone"
+                | "timestamp without time zone"
+                | "tstzmultirange"
+                | "tstzrange"
+                | "uuid"
+                | "ARRAY"
+                | "USER-DEFINED" => unimplemented!("data_type"),
+                _ => panic!("data_type unknow"),
             },
             is_nullable: r.get("is_nullable"),
-        });
+        })
+        .chunk_by(|ref r| (r.table_schema.clone(), r.table_name.clone()))
+        .into_iter()
+        .map(|((_, table), r)| Table {
+            name: table.leak(),
+            columns: r
+                .into_iter()
+                .map(|c| Column {
+                    name: c.column_name.leak(),
+                    data: ColumnData {
+                        type_: c.data_type,
+                        nullable: c.is_nullable,
+                    },
+                })
+                .collect(),
+        })
+        .collect();
 
-    todo!()
+    Ok(Catalog { tables })
 }
 
 #[tokio::test]
+#[ignore]
 async fn run() {
-    let url = "postgres://postgres:bipa@localhost/bipa";
-    let (client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+    let url = "postgres://postgres:bipa@localhost/typer";
+    let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             eprintln!("connection error: {}", e);
         }
     });
-    dbg!(get(&client).await);
 
-    panic!(".");
+    let t = client.transaction().await.unwrap();
+    t.query(
+        "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
+        &[],
+    )
+    .await
+    .unwrap();
+
+    let catalog = catalog(&t).await.unwrap();
+    assert_eq!(
+        catalog,
+        Catalog {
+            tables: vec![Table {
+                name: "a",
+                columns: vec![
+                    Column {
+                        name: "id",
+                        data: ColumnData {
+                            type_: Type::Integer,
+                            nullable: false,
+                        },
+                    },
+                    Column {
+                        name: "name",
+                        data: ColumnData {
+                            type_: Type::Text,
+                            nullable: true,
+                        },
+                    },
+                ],
+            },],
+        }
+    );
 }

@@ -17,23 +17,6 @@ impl Catalog<'_> {
     }
 }
 
-#[cfg(test)]
-fn parse(sql: &str) -> NodeEnum {
-    pg_query::parse(sql)
-        .unwrap()
-        .protobuf
-        .stmts
-        .first()
-        .unwrap()
-        .stmt
-        .as_ref()
-        .unwrap()
-        .node
-        .as_ref()
-        .unwrap()
-        .clone()
-}
-
 type Ctx<'a> = Vec<CtxEntry<'a>>;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -210,10 +193,26 @@ pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    type C = ColumnData;
     use super::*;
 
-    type C = ColumnData;
+    #[cfg(test)]
+    fn parse(sql: &str) -> NodeEnum {
+        pg_query::parse(sql)
+            .unwrap()
+            .protobuf
+            .stmts
+            .first()
+            .unwrap()
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap()
+            .clone()
+    }
+
     fn tables_fixture() -> Catalog<'static> {
         /*
         create table x(a text not null, b int);
