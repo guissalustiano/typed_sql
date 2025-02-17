@@ -75,3 +75,12 @@ pub struct Table<'a> {
 pub struct Catalog<'a> {
     pub tables: Vec<Table<'a>>,
 }
+
+pub type PrepareStatements<'a> = Vec<PrepareStatement<'a>>;
+
+#[derive(Debug, PartialEq)]
+pub struct PrepareStatement<'a> {
+    pub name: &'a str,
+    pub statement: &'a str,
+    pub result_types: Vec<Type>,
+}
