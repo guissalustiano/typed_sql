@@ -233,8 +233,7 @@ mod tests {
                             name: "b",
                             data: ColumnData::int_nullable(),
                         },
-                    ]
-                    .leak(),
+                    ],
                 },
                 Table {
                     name: "y",
@@ -247,19 +246,16 @@ mod tests {
                             name: "d",
                             data: ColumnData::bytes(),
                         },
-                    ]
-                    .leak(),
+                    ],
                 },
                 Table {
                     name: "w",
                     columns: vec![Column {
                         name: "e",
                         data: ColumnData::int(),
-                    }]
-                    .leak(),
+                    }],
                 },
-            ]
-            .leak(),
+            ],
         }
     }
 

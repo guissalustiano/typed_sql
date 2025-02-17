@@ -68,10 +68,10 @@ pub struct Column<'a> {
 #[derive(Debug, Clone)]
 pub struct Table<'a> {
     pub name: &'a str,
-    pub columns: &'a [Column<'a>],
+    pub columns: Vec<Column<'a>>,
 }
 
 #[derive(Debug)]
 pub struct Catalog<'a> {
-    pub tables: &'a [Table<'a>],
+    pub tables: Vec<Table<'a>>,
 }
