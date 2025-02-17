@@ -100,6 +100,7 @@ pub(crate) async fn prepare_statements<'a, 'b>(
 }
 
 #[tokio::test]
+#[ignore]
 async fn run_catalog() {
     let url = "postgres://postgres:bipa@localhost/typer";
     let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
@@ -145,6 +146,7 @@ async fn run_catalog() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn run_prepare_statement() {
     let url = "postgres://postgres:bipa@localhost/typer";
     let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
