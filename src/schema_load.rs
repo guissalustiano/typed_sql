@@ -20,22 +20,14 @@ fn typname_to_enum(s: &str) -> Type {
 pub(crate) async fn catalog<'a, 'b>(
     client: &'a impl tokio_postgres::GenericClient,
 ) -> eyre::Result<Catalog<'b>> {
-    struct C {
-        table_schema: String,
-        table_name: String,
-        column_name: String,
-        data_type: Type,
-        is_nullable: bool,
-    }
-
     let tables = client
         .query(
             "SELECT 
                 t.table_schema,
                 t.table_name,
-                c.column_name,
-                c.udt_name,
-                c.is_nullable::boolean
+                ARRAY_AGG(c.column_name::text) as column_name,
+                ARRAY_AGG(c.udt_name::text) as udt_name,
+                ARRAY_AGG(c.is_nullable::bool) as is_nullable
             FROM 
                 information_schema.tables t
                 JOIN information_schema.columns c 
@@ -44,32 +36,25 @@ pub(crate) async fn catalog<'a, 'b>(
             WHERE 
                 t.table_schema NOT IN ('pg_catalog', 'information_schema')
                 AND t.table_type IN ('BASE TABLE', 'VIEW')
-            ORDER BY 
+            GROUP BY 
                 t.table_schema,
-                t.table_name,
-                c.ordinal_position",
+                t.table_name",
             &[],
         )
         .await?
         .iter()
-        .map(|r| C {
-            table_schema: r.get("table_schema"),
-            table_name: r.get("table_name"),
-            column_name: r.get("column_name"),
-            data_type: typname_to_enum(r.get("udt_name")),
-            is_nullable: r.get("is_nullable"),
-        })
-        .chunk_by(|ref r| (r.table_schema.clone(), r.table_name.clone()))
-        .into_iter()
-        .map(|((_, table), r)| Table {
-            name: table.leak(),
+        .map(|r| Table {
+            name: r.get::<_, String>("table_name").leak(),
             columns: r
+                .get::<_, Vec<&str>>("column_name")
                 .into_iter()
-                .map(|c| Column {
-                    name: c.column_name.leak(),
+                .zip(r.get::<_, Vec<&str>>("udt_name"))
+                .zip(r.get::<_, Vec<bool>>("is_nullable"))
+                .map(|((name, types), nullable)| Column {
+                    name: name.to_owned().leak(),
                     data: ColumnData {
-                        type_: c.data_type,
-                        nullable: c.is_nullable,
+                        type_: typname_to_enum(types),
+                        nullable,
                     },
                 })
                 .collect(),
