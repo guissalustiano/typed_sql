@@ -4,8 +4,8 @@ use pg_query::{
     protobuf::{JoinType, a_const::Val},
 };
 
-impl Catalog<'_> {
-    fn as_ctx(&self) -> Ctx {
+impl<'a> Catalog<'a> {
+    fn to_ctx(self) -> Ctx<'a> {
         self.tables
             .iter()
             .flat_map(|t| {
@@ -241,7 +241,7 @@ pub(crate) mod tests {
                 },
             ],
         }
-        .as_ctx()
+        .to_ctx()
     }
 
     #[test]
