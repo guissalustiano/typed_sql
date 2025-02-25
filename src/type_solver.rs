@@ -17,7 +17,7 @@ impl Catalog<'_> {
     }
 }
 
-type Ctx<'a> = Vec<CtxEntry<'a>>;
+pub type Ctx<'a> = Vec<CtxEntry<'a>>;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct CtxEntry<'a> {
@@ -89,9 +89,9 @@ fn solve_from_table<'a>(sys_ctx: &Ctx<'a>, n: &NodeEnum) -> Ctx<'a> {
     }
 }
 
-pub(crate) fn solve_from<'a>(sys_ctx: Ctx<'a>, from: &[Node]) -> Ctx<'a> {
+pub(crate) fn solve_from<'a>(sys_ctx: &Ctx<'a>, from: &[Node]) -> Ctx<'a> {
     from.iter()
-        .map(|n| solve_from_table(&sys_ctx, n.node.as_ref().expect("from.node")))
+        .map(|n| solve_from_table(sys_ctx, n.node.as_ref().expect("from.node")))
         .flatten()
         .collect()
 }
@@ -150,9 +150,7 @@ pub(crate) fn solve_targets<'a>(ctx: Ctx<'a>, targets: &'a [Node]) -> Ctx<'a> {
     targets.iter().map(|n| solve_target(&ctx, n)).collect()
 }
 
-// TODO: receide ctx
-pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
-    let sys_ctx = ctg.as_ctx();
+pub fn solve_type<'a>(sys_ctx: &Ctx<'a>, stmt: &'a NodeEnum) -> Ctx<'a> {
     match stmt {
         NodeEnum::SelectStmt(s) => {
             let ctx = solve_from(sys_ctx, &s.from_clause);
@@ -200,7 +198,7 @@ pub(crate) mod tests {
     use super::*;
 
     #[cfg(test)]
-    pub(crate) fn tables_fixture() -> Catalog<'static> {
+    pub(crate) fn tables_ctx_fixture() -> Ctx<'static> {
         /*
         create table x(a text not null, b int);
         create table y(c int not null, d bytea not null);
@@ -243,11 +241,12 @@ pub(crate) mod tests {
                 },
             ],
         }
+        .as_ctx()
     }
 
     #[test]
     fn resolve_simple_select() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("SELECT x.a, x.b FROM x");
         let expected = vec![
@@ -260,7 +259,7 @@ pub(crate) mod tests {
 
     #[test]
     fn resolve_simple_select_with_literal() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("SELECT y.d, 1, '123', NULL FROM y");
         let expected = vec![
@@ -276,7 +275,7 @@ pub(crate) mod tests {
     #[test]
     #[should_panic(expected = "selected table/name not found")]
     fn resolve_based_on_from() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         // x is not present on from clause
         let ast = parse("SELECT x.a FROM y");
@@ -286,7 +285,7 @@ pub(crate) mod tests {
 
     #[test]
     fn left_join_is_marked_as_null() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("SELECT x.a, y.c FROM x LEFT JOIN y ON x.b = y.c");
         let expected = vec![
@@ -299,7 +298,7 @@ pub(crate) mod tests {
 
     #[test]
     fn inner_join_is_not_marked_as_null() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("SELECT x.a, y.c FROM x INNER JOIN y ON x.b = y.c");
         let expected = vec![
@@ -312,7 +311,7 @@ pub(crate) mod tests {
 
     #[test]
     fn multiple_join_works() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast =
             parse("SELECT x.a, y.c, w.e FROM x LEFT JOIN y ON x.b = y.c INNER JOIN w ON x.b = w.e");
@@ -327,7 +326,7 @@ pub(crate) mod tests {
 
     #[test]
     fn select_support_alias() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("SELECT x.a as v FROM x");
         let expected = vec![CtxEntry {
@@ -341,7 +340,7 @@ pub(crate) mod tests {
 
     #[test]
     fn supports_delete() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("DELETE FROM x WHERE x.b < 0");
         let expected = vec![CtxEntry::new_anonymous(C::int())];
@@ -351,7 +350,7 @@ pub(crate) mod tests {
 
     #[test]
     fn supports_delete_with_returning() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("DELETE FROM x WHERE x.b < 0 returning x.a");
         let expected = vec![CtxEntry::new("x", "a", C::string())];
@@ -361,7 +360,7 @@ pub(crate) mod tests {
 
     #[test]
     fn supports_insert() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("INSERT INTO x(a) VALUES('a')");
         let expected = vec![CtxEntry::new_anonymous(C::int())];
@@ -371,7 +370,7 @@ pub(crate) mod tests {
 
     #[test]
     fn supports_insert_with_returning() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("INSERT INTO x(a) VALUES('a') returning x.a");
         let expected = vec![CtxEntry::new("x", "a", C::string())];
@@ -381,7 +380,7 @@ pub(crate) mod tests {
 
     #[test]
     fn supports_update() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("UPDATE x SET a='a1'");
         let expected = vec![CtxEntry::new_anonymous(C::int())];
@@ -391,7 +390,7 @@ pub(crate) mod tests {
 
     #[test]
     fn supports_update_with_returning() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
 
         let ast = parse("UPDATE x SET a='a1' returning x.a");
         let expected = vec![CtxEntry::new("x", "a", C::string())];

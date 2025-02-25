@@ -9,6 +9,7 @@ use crate::schema::Catalog;
 use crate::schema::ColumnData;
 use crate::schema::PrepareStatement;
 use crate::schema::Type;
+use crate::type_solver::Ctx;
 use crate::type_solver::solve_type;
 
 #[derive(PartialEq, Debug)]
@@ -60,7 +61,7 @@ where
     iter.into_iter().all(move |x| uniq.insert(x))
 }
 
-pub(crate) fn prepare<'a>(ctg: &'a Catalog, stmt: &'a PrepareStatement<'a>) -> FnData<'a> {
+pub(crate) fn prepare<'a>(ctg: &Ctx<'a>, stmt: &'a PrepareStatement<'a>) -> FnData<'a> {
     let NodeEnum::PrepareStmt(n) = parse(stmt.statement) else {
         panic!("prepare");
     };
@@ -180,19 +181,19 @@ pub(crate) fn gen_fn_inner(data: FnData) -> TokenStream {
     output
 }
 
-pub fn gen_fn<'a>(ctg: &'a Catalog, stmt: &'a PrepareStatement<'a>) -> TokenStream {
+pub fn gen_fn<'a>(ctg: &'a Ctx, stmt: &'a PrepareStatement<'a>) -> TokenStream {
     gen_fn_inner(prepare(ctg, stmt))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::type_solver::tests::tables_fixture;
+    use crate::type_solver::tests::tables_ctx_fixture;
 
     use super::*;
 
     #[test]
     fn prepare_basic() {
-        let ctl = tables_fixture();
+        let ctl = tables_ctx_fixture();
         let ps = PrepareStatement {
             name: "list_a",
             statement: "PREPARE list_a AS SELECT x.a, x.b FROM x",
