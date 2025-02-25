@@ -1,6 +1,7 @@
 use std::hash::Hash;
 
 use convert_case::{Case, Casing};
+use itertools::Itertools;
 use pg_query::NodeEnum;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -65,7 +66,7 @@ pub(crate) fn prepare<'a>(ctg: &Ctx<'a>, stmt: &'a PrepareStatement<'a>) -> FnDa
     let NodeEnum::PrepareStmt(n) = parse(stmt.statement) else {
         panic!("prepare");
     };
-    debug_assert!(n.name == stmt.name);
+    debug_assert_eq!(n.name, stmt.name);
 
     let query = n.query.as_ref().unwrap().node.as_ref().unwrap();
     let ctx = solve_type(&ctg, &query);
@@ -81,6 +82,9 @@ pub(crate) fn prepare<'a>(ctg: &Ctx<'a>, stmt: &'a PrepareStatement<'a>) -> FnDa
     else {
         panic!("empty name");
     };
+
+    let calculated_types = name_and_type.iter().map(|(_, d)| d.type_);
+    debug_assert_eq!(calculated_types.collect_vec(), stmt.result_types);
 
     let params = name_and_type
         .into_iter()
@@ -197,7 +201,7 @@ mod tests {
         let ps = PrepareStatement {
             name: "list_a",
             statement: "PREPARE list_a AS SELECT x.a, x.b FROM x",
-            result_types: vec![Type::Int4, Type::Text],
+            result_types: vec![Type::Text, Type::Int4],
         };
 
         let expected = FnData {
