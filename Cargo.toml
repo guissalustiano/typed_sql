@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+convert_case = "0.7.1"
 eyre = "0.6.12"
+futures = "0.3.31"
 itertools = "0.14.0"
 pg_query = "6.0.0"
+proc-macro2 = "1.0.93"
+quote = "1.0.38"
 tokio = { version = "1.43.0", features = ["full"] }
 tokio-postgres = { version = "0.7.13", features = ["array-impls"] }

@@ -1,8 +1,4 @@
-use core::panic;
-use std::time::Duration;
-
 use crate::schema::*;
-use itertools::Itertools;
 
 use crate::schema::Catalog;
 
@@ -165,7 +161,6 @@ async fn run_prepare_statement() {
         "PREPARE list_a AS SELECT a.id, a.name FROM a",
     ] {
         t.execute(stmt, &[]).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     let ps = prepare_statements(&t).await.unwrap();
