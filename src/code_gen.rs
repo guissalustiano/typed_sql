@@ -103,11 +103,11 @@ pub(crate) fn prepare<'a>(ctg: &Ctx<'a>, stmt: &'a PrepareStatement<'a>) -> FnDa
             }
 
             lazy_match!(
-                Integer => I32,
+                Int4 => I32,
                 Text => String,
                 Bytea => VecU8,
                 Boolean => Bool,
-                Real => F32,
+                Float4 => F32,
                 Void => Never,
             )
         })
@@ -197,7 +197,7 @@ mod tests {
         let ps = PrepareStatement {
             name: "list_a",
             statement: "PREPARE list_a AS SELECT x.a, x.b FROM x",
-            result_types: vec![Type::Integer, Type::Text],
+            result_types: vec![Type::Int4, Type::Text],
         };
 
         let expected = FnData {

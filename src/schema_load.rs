@@ -7,8 +7,8 @@ fn typname_to_enum(s: &str) -> Type {
         "bool" => Type::Boolean,
         "text" | "_name" => Type::Text,
         "bytea" => Type::Bytea,
-        "int4" => Type::Integer,
-        "float4" => Type::Real,
+        "int4" => Type::Int4,
+        "float4" => Type::Float4,
         _ => panic!("data_type unknow: {s}"),
     }
 }
@@ -124,7 +124,7 @@ async fn run_catalog() {
                     Column {
                         name: "id",
                         data: ColumnData {
-                            type_: Type::Integer,
+                            type_: Type::Int4,
                             nullable: false,
                         },
                     },
@@ -170,7 +170,7 @@ async fn run_prepare_statement() {
         vec![PrepareStatement {
             name: "list_a",
             statement: "PREPARE list_a AS SELECT a.id, a.name FROM a",
-            result_types: vec![Type::Integer, Type::Text],
+            result_types: vec![Type::Int4, Type::Text],
         }]
     )
 }

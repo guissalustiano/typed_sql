@@ -1,10 +1,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
-    Integer,
+    Int4,
     Text,
     Bytea,
     Boolean,
-    Real,
+    Float4,
     Void,
 }
 
@@ -23,13 +23,13 @@ impl ColumnData {
     }
     pub fn int() -> Self {
         ColumnData {
-            type_: Type::Integer,
+            type_: Type::Int4,
             nullable: false,
         }
     }
     pub fn int_nullable() -> Self {
         ColumnData {
-            type_: Type::Integer,
+            type_: Type::Int4,
             nullable: true,
         }
     }
@@ -47,7 +47,7 @@ impl ColumnData {
     }
     pub fn float() -> Self {
         ColumnData {
-            type_: Type::Real,
+            type_: Type::Float4,
             nullable: false,
         }
     }
