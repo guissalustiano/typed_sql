@@ -5,7 +5,7 @@ pub enum Type {
     Bytea,
     Boolean,
     Real,
-    Unknow,
+    Void,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +53,7 @@ impl ColumnData {
     }
     pub fn null() -> Self {
         ColumnData {
-            type_: Type::Unknow,
+            type_: Type::Void,
             nullable: false,
         }
     }

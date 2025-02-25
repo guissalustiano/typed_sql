@@ -1,7 +1,7 @@
 use crate::schema::*;
 use pg_query::{
-    protobuf::{a_const::Val, JoinType},
     Node, NodeEnum,
+    protobuf::{JoinType, a_const::Val},
 };
 
 impl Catalog<'_> {
@@ -150,6 +150,7 @@ pub(crate) fn solve_targets<'a>(ctx: Ctx<'a>, targets: &'a [Node]) -> Ctx<'a> {
     targets.iter().map(|n| solve_target(&ctx, n)).collect()
 }
 
+// TODO: receide ctx
 pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
     let sys_ctx = ctg.as_ctx();
     match stmt {
@@ -192,28 +193,14 @@ pub fn solve_type<'a>(ctg: &'a Catalog, stmt: &'a NodeEnum) -> Ctx<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     type C = ColumnData;
+    use crate::code_gen::parse;
+
     use super::*;
 
     #[cfg(test)]
-    fn parse(sql: &str) -> NodeEnum {
-        pg_query::parse(sql)
-            .unwrap()
-            .protobuf
-            .stmts
-            .first()
-            .unwrap()
-            .stmt
-            .as_ref()
-            .unwrap()
-            .node
-            .as_ref()
-            .unwrap()
-            .clone()
-    }
-
-    fn tables_fixture() -> Catalog<'static> {
+    pub(crate) fn tables_fixture() -> Catalog<'static> {
         /*
         create table x(a text not null, b int);
         create table y(c int not null, d bytea not null);
