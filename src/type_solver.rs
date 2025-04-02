@@ -5,7 +5,7 @@ use pg_query::{
 };
 
 impl<'a> Catalog<'a> {
-    fn to_ctx(self) -> Ctx<'a> {
+    pub(crate) fn to_ctx(self) -> Ctx<'a> {
         self.tables
             .iter()
             .flat_map(|t| {

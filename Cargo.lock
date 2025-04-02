@@ -1176,6 +1176,7 @@ dependencies = [
  "convert_case",
  "eyre",
  "futures",
+ "glob",
  "itertools 0.14.0",
  "pg_query",
  "proc-macro2",
