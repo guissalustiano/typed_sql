@@ -62,6 +62,7 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
         // Create parameter references for binding
         let param_refs = (0..data.parameter_types.len())
             .map(|i| {
+                let i = proc_macro2::Literal::usize_unsuffixed(i);
                 quote! { p.#i }
             })
             .collect::<Vec<_>>();
@@ -103,54 +104,58 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::types::*;
+
+    fn g(p: PrepareStatement) -> String {
+        prettyplease::unparse(&syn::parse2(gen_fn(p).unwrap()).unwrap())
+    }
 
     #[test]
     fn prepare_with_output() {
-        use crate::schema::types::*;
-
-        let ps = PrepareStatement {
+        let p = PrepareStatement {
             name: "list_a",
             statement: "PREPARE list_a AS SELECT a.id, a.name FROM a",
             parameter_types: vec![],
             result_types: vec![INT4, TEXT],
         };
 
-        let result = p(gen_fn(ps).unwrap());
-        insta::assert_snapshot!(result, @"");
+        insta::assert_snapshot!(g(p), @r#"
+        pub struct ListARows(pub Option<i32>, pub Option<String>);
+        pub async fn list_a(
+            c: impl tokio_postgres::GenericClient,
+            p: ListAParams,
+        ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
+            c.query("SELECT a.id, a.name FROM a", &[])
+                .await
+                .map(|rs| {
+                    rs.into_iter().map(|r| ListARows(r.try_get(0)?, r.try_get(1)?)).collect()
+                })
+        }
+        "#);
     }
 
     #[test]
     fn prepare_with_input_and_output() {
-        use crate::schema::types::*;
-
-        let ps = PrepareStatement {
+        let p = PrepareStatement {
             name: "list_a",
             statement: "PREPARE list_a AS SELECT a.id, a.name FROM a WHERE a.id = $1",
             parameter_types: vec![INT4],
             result_types: vec![INT4, TEXT],
         };
 
-        let expected = p(quote! {
-            pub struct ListAParams(pub Option<i32>);
-            pub struct ListARows(pub Option<i32>, pub Option<String>);
-
-            pub async fn list_a(
-                c: impl tokio_postgres::GenericClient,
-                p: ListAParams
-            ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
-                c.query("SELECT a.id, a.name FROM a WHERE a.id = $1", &[p.0]).await.map(|rs| {
-                    rs.into_iter()
-                        .map(|r| ListAQuery(r.try_get(0)?, r.try_get(1)?))
-                        .collect()
+        insta::assert_snapshot!(g(p), @r#"
+        pub struct ListAParams(pub Option<i32>);
+        pub struct ListARows(pub Option<i32>, pub Option<String>);
+        pub async fn list_a(
+            c: impl tokio_postgres::GenericClient,
+            p: ListAParams,
+        ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
+            c.query("SELECT a.id, a.name FROM a WHERE a.id = $1", &[p.0])
+                .await
+                .map(|rs| {
+                    rs.into_iter().map(|r| ListARows(r.try_get(0)?, r.try_get(1)?)).collect()
                 })
-            }
-        });
-
-        let result = p(gen_fn(ps).unwrap());
-        insta::assert_snapshot!(result, @"");
-    }
-
-    fn p(t: TokenStream) -> String {
-        prettyplease::unparse(&syn::parse_file(&t.to_string()).unwrap())
+        }
+        "#);
     }
 }
