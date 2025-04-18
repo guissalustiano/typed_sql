@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-convert_case = "0.7.1"
-eyre = "0.6.12"
-futures = "0.3.31"
-glob = "0.3.2"
-itertools = "0.14.0"
-pg_query = "6.0.0"
-proc-macro2 = "1.0.93"
-quote = "1.0.38"
-tokio = { version = "1.43.0", features = ["full"] }
-tokio-postgres = { version = "0.7.13", features = ["array-impls"] }
+convert_case = { version = "0.7.1", default-features = false }
+eyre = { version = "0.6.12", default-features = false }
+proc-macro2 = { version = "1.0.93", default-features = false }
+quote = { version = "1.0.38", default-features = false }
+tokio-postgres = { version = "0.7.13", features = ["array-impls"], default-features = false }
+
+[dev-dependencies]
+prettyplease = { version = "0.2.32", default-features = false }
+syn = { version = "2.0.100", default-features = false }
+tokio = { version = "1.44.2", default-features = false, features = ["rt-multi-thread", "tokio-macros"] }
+tokio-postgres = { version = "0.7.13", default-features = false, features = ["array-impls", "runtime"] }

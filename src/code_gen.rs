@@ -1,267 +1,175 @@
-use std::hash::Hash;
+use std::ops::Deref;
 
 use convert_case::{Case, Casing};
-use itertools::Itertools;
-use pg_query::NodeEnum;
+use eyre::ContextCompat;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use crate::schema::Catalog;
-use crate::schema::ColumnData;
 use crate::schema::PrepareStatement;
-use crate::schema::Type;
-use crate::type_solver::Ctx;
-use crate::type_solver::solve_type;
 
-#[derive(PartialEq, Debug)]
-pub(crate) enum RustTypes {
-    I32,
-    String,
-    VecU8,
-    Bool,
-    F32,
-    Never,
-}
+pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
+    fn quote_type(ty: &str) -> eyre::Result<TokenStream> {
+        use crate::schema::types::*;
 
-#[derive(PartialEq, Debug)]
-pub(crate) struct Param<'a> {
-    name: &'a str,
-    type_: RustTypes,
-    nullable: bool,
-}
-
-#[derive(PartialEq, Debug)]
-pub(crate) struct FnData<'a> {
-    name: &'a str,
-    params: Vec<Param<'a>>,
-    statement: &'static str,
-}
-
-pub(crate) fn parse(sql: &str) -> NodeEnum {
-    pg_query::parse(sql)
-        .unwrap()
-        .protobuf
-        .stmts
-        .first()
-        .unwrap()
-        .stmt
-        .as_ref()
-        .unwrap()
-        .node
-        .as_ref()
-        .unwrap()
-        .clone()
-}
-
-fn has_unique_elements<T>(iter: T) -> bool
-where
-    T: IntoIterator,
-    T::Item: Eq + Hash,
-{
-    let mut uniq = std::collections::HashSet::new();
-    iter.into_iter().all(move |x| uniq.insert(x))
-}
-
-pub(crate) fn prepare<'a>(ctg: &Ctx<'a>, stmt: &'a PrepareStatement<'a>) -> FnData<'a> {
-    let NodeEnum::PrepareStmt(n) = parse(stmt.statement) else {
-        panic!("prepare");
-    };
-    debug_assert_eq!(n.name, stmt.name);
-
-    let query = n.query.as_ref().unwrap().node.as_ref().unwrap();
-    let ctx = solve_type(&ctg, &query);
-
-    if !has_unique_elements(ctx.iter().map(|c| c.column)) {
-        panic!("duplicated names");
-    }
-
-    let Some(name_and_type): Option<Vec<(&str, ColumnData)>> = ctx
-        .into_iter()
-        .map(|c| c.column.map(|c_name| (c_name, c.data)))
-        .collect()
-    else {
-        panic!("empty name");
-    };
-
-    let calculated_types = name_and_type.iter().map(|(_, d)| d.type_);
-    // debug_assert_eq!(calculated_types.collect_vec(), stmt.result_types);
-
-    let params = name_and_type
-        .into_iter()
-        .map(|(c_name, d)| {
-            macro_rules! lazy_match {
-                ($($sql_t:ident => $rust_t:ident),* $(,)?) => {
-                    match d {
-                        $(
-                            ColumnData {
-                                type_: Type::$sql_t,
-                                nullable,
-                            } => Param {
-                                name: c_name.to_owned().leak(),
-                                type_: RustTypes::$rust_t,
-                                nullable,
-                            },
-                        )*
-                    }
-                };
-            }
-
-            lazy_match!(
-                Int4 => I32,
-                Text => String,
-                Bytea => VecU8,
-                Boolean => Bool,
-                Float4 => F32,
-                Void => Never,
-            )
+        Ok(match ty {
+            INT4 => quote! { pub Option<i32> },
+            TEXT => quote! { pub Option<String> },
+            _ => eyre::bail!("type {ty} not found"),
         })
-        .collect();
-
-    FnData {
-        name: &stmt.name,
-        params,
-        statement: query.deparse().unwrap().leak(),
     }
-}
 
-pub(crate) fn gen_fn_inner(data: FnData) -> TokenStream {
-    // Convert name to PascalCase for struct name
-    let struct_name = format!("{}Query", data.name.to_case(Case::Pascal));
-    let struct_ident = format_ident!("{}", struct_name);
+    let pascal_name = data.name.to_case(Case::Pascal);
+    let rows_struct_ident = format_ident!("{}Rows", pascal_name);
+    let params_struct_ident = format_ident!("{}Params", pascal_name);
 
-    // Create function name in snake_case
-    let fn_name = format_ident!("{}", data.name.to_case(Case::Snake));
+    let fn_name = format_ident!("{}", data.name);
+    let sql_statement = data
+        .statement
+        .split(" AS ")
+        .nth(1)
+        .context("weird prepare statement")?;
 
-    // Generate struct fields based on params
-    let fields = data.params.iter().map(|p| {
-        let field_ident = format_ident!("{}", p.name);
-        let field_type = match p.type_ {
-            RustTypes::I32 => quote!(i32),
-            RustTypes::String => quote!(String),
-            RustTypes::VecU8 => quote! {Vec<u8>},
-            RustTypes::Bool => quote! {bool},
-            RustTypes::F32 => quote! {f32},
-            RustTypes::Never => quote! {!},
-        };
+    let has_params = !data.parameter_types.is_empty();
+    let params_struct = if has_params {
+        let param_types = data
+            .parameter_types
+            .iter()
+            .map(Deref::deref)
+            .map(quote_type)
+            .collect::<eyre::Result<Vec<_>>>()?;
 
-        if p.nullable {
-            quote! {
-                pub #field_ident: Option<#field_type>
-            }
-        } else {
-            quote! {
-                pub #field_ident: #field_type
-            }
-        }
-    });
-
-    // Generate struct field initialization
-    let field_inits = data.params.iter().map(|Param { name, .. }| {
-        let field_ident = format_ident!("{}", name);
         quote! {
-            #field_ident: r.get(#name)
+            pub struct #params_struct_ident(#(#param_types),*);
         }
-    });
-    let statement = data.statement;
+    } else {
+        quote! {}
+    };
 
-    let output = quote! {
-        pub struct #struct_ident {
-            #( #fields, )*
+    let rows_struct = {
+        let result_fields = data
+            .result_types
+            .iter()
+            .map(Deref::deref)
+            .map(quote_type)
+            .collect::<eyre::Result<Vec<_>>>()?;
+        quote! {
+            pub struct #rows_struct_ident(#(#result_fields),*);
         }
+    };
+
+    // Generate param binding for the query
+    let param_binding = if has_params {
+        // Create parameter references for binding
+        let param_refs = (0..data.parameter_types.len())
+            .map(|i| {
+                quote! { p.#i }
+            })
+            .collect::<Vec<_>>();
+
+        quote! { &[#(#param_refs),*] }
+    } else {
+        quote! { &[] }
+    };
+
+    let try_get_expressions = {
+        let get_exprs = (0..data.result_types.len())
+            .map(|i| {
+                let i = proc_macro2::Literal::usize_unsuffixed(i);
+                quote! { r.try_get(#i)? }
+            })
+            .collect::<Vec<_>>();
+
+        quote! { #(#get_exprs),* }
+    };
+
+    // Generate the function body with the appropriate try_get expressions
+    Ok(quote! {
+        #params_struct
+        #rows_struct
 
         pub async fn #fn_name(
             c: impl tokio_postgres::GenericClient,
-        ) -> Result<Vec<#struct_ident>, tokio_postgres::Error> {
-            c.query(#statement, &[]).await.map(|rs| {
+            p: #params_struct_ident
+        ) -> Result<Vec<#rows_struct_ident>, tokio_postgres::Error> {
+            c.query(#sql_statement, #param_binding).await.map(|rs| {
                 rs.into_iter()
-                    .map(|r| #struct_ident {
-                        #( #field_inits, )*
-                    })
+                    .map(|r| #rows_struct_ident(#try_get_expressions))
                     .collect()
             })
         }
-    };
-
-    output
-}
-
-pub fn gen_fn<'a>(ctg: &'a Ctx, stmt: &'a PrepareStatement<'a>) -> TokenStream {
-    gen_fn_inner(prepare(ctg, stmt))
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::type_solver::tests::tables_ctx_fixture;
-
     use super::*;
 
-    // #[test]
-    // fn prepare_basic() {
-    //     let ctl = tables_ctx_fixture();
-    //     let ps = PrepareStatement {
-    //         name: "list_a",
-    //         statement: "PREPARE list_a AS SELECT x.a, x.b FROM x",
-    //         result_types: vec![Type::Text, Type::Int4],
-    //     };
-
-    //     let expected = FnData {
-    //         name: "list_a",
-    //         params: vec![
-    //             Param {
-    //                 name: "a",
-    //                 type_: RustTypes::String,
-    //                 nullable: false,
-    //             },
-    //             Param {
-    //                 name: "b",
-    //                 type_: RustTypes::I32,
-    //                 nullable: true,
-    //             },
-    //         ],
-    //         statement: "SELECT x.a, x.b FROM x",
-    //     };
-
-    //     assert_eq!(prepare(&ctl, &ps), expected);
-    // }
     #[test]
-    fn gen_basic() {
-        let d = FnData {
+    fn prepare_with_output() {
+        use crate::schema::types::*;
+
+        let ps = PrepareStatement {
             name: "list_a",
-            params: vec![
-                Param {
-                    name: "id",
-                    type_: RustTypes::I32,
-                    nullable: false,
-                },
-                Param {
-                    name: "name",
-                    type_: RustTypes::String,
-                    nullable: true,
-                },
-            ],
-            statement: "SELECT a.id, a.name FROM a",
+            statement: "PREPARE list_a AS SELECT a.id, a.name FROM a",
+            parameter_types: vec![],
+            result_types: vec![INT4, TEXT],
         };
 
-        let expected = quote! {
-            pub struct ListAQuery {
-                pub id: i32,
-                pub name: Option<String>,
-            }
+        let expected = p(quote! {
+            pub struct ListARows(pub Option<i32>, pub Option<String>);
 
             pub async fn list_a(
                 c: impl tokio_postgres::GenericClient,
-            ) -> Result<Vec<ListAQuery>, tokio_postgres::Error> {
+                p: ListAParams
+            ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
                 c.query("SELECT a.id, a.name FROM a", &[]).await.map(|rs| {
                     rs.into_iter()
-                        .map(|r| ListAQuery {
-                            id: r.get("id"),
-                            name: r.get("name"),
-                        })
+                        .map(|r| ListAQuery(r.try_get(0)?, r.try_get(1)?))
                         .collect()
                 })
             }
+        });
+
+        let result = p(gen_fn(ps).unwrap());
+        println!("{}", &result);
+        println!("{}", &expected);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn prepare_with_input_and_output() {
+        use crate::schema::types::*;
+
+        let ps = PrepareStatement {
+            name: "list_a",
+            statement: "PREPARE list_a AS SELECT a.id, a.name FROM a WHERE a.id = $1",
+            parameter_types: vec![INT4],
+            result_types: vec![INT4, TEXT],
         };
 
-        assert_eq!(gen_fn_inner(d).to_string(), expected.to_string());
+        let expected = p(quote! {
+            pub struct ListAParams(pub Option<i32>);
+            pub struct ListARows(pub Option<i32>, pub Option<String>);
+
+            pub async fn list_a(
+                c: impl tokio_postgres::GenericClient,
+                p: ListAParams
+            ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
+                c.query("SELECT a.id, a.name FROM a WHERE a.id = $1", &[p.0]).await.map(|rs| {
+                    rs.into_iter()
+                        .map(|r| ListAQuery(r.try_get(0)?, r.try_get(1)?))
+                        .collect()
+                })
+            }
+        });
+
+        let result = p(gen_fn(ps).unwrap());
+        dbg!(&result);
+        dbg!(&expected);
+        assert_eq!(result, expected);
+    }
+
+    fn p(t: TokenStream) -> String {
+        prettyplease::unparse(&syn::parse_file(&t.to_string()).unwrap())
     }
 }
