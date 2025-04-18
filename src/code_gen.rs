@@ -115,25 +115,8 @@ mod tests {
             result_types: vec![INT4, TEXT],
         };
 
-        let expected = p(quote! {
-            pub struct ListARows(pub Option<i32>, pub Option<String>);
-
-            pub async fn list_a(
-                c: impl tokio_postgres::GenericClient,
-                p: ListAParams
-            ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
-                c.query("SELECT a.id, a.name FROM a", &[]).await.map(|rs| {
-                    rs.into_iter()
-                        .map(|r| ListAQuery(r.try_get(0)?, r.try_get(1)?))
-                        .collect()
-                })
-            }
-        });
-
         let result = p(gen_fn(ps).unwrap());
-        println!("{}", &result);
-        println!("{}", &expected);
-        assert_eq!(result, expected);
+        insta::assert_snapshot!(result, @"");
     }
 
     #[test]
@@ -164,9 +147,7 @@ mod tests {
         });
 
         let result = p(gen_fn(ps).unwrap());
-        dbg!(&result);
-        dbg!(&expected);
-        assert_eq!(result, expected);
+        insta::assert_snapshot!(result, @"");
     }
 
     fn p(t: TokenStream) -> String {

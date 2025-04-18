@@ -11,7 +11,8 @@ quote = { version = "1.0.38", default-features = false }
 tokio-postgres = { version = "0.7.13", features = ["array-impls"], default-features = false }
 
 [dev-dependencies]
+insta = { version = "1.42.2", default-features = false }
 prettyplease = { version = "0.2.32", default-features = false }
-syn = { version = "2.0.100", default-features = false }
-tokio = { version = "1.44.2", default-features = false, features = ["rt-multi-thread", "tokio-macros"] }
+syn = { version = "2.0.100", default-features = false, features = ["parsing"] }
+tokio = { version = "1.44.2", default-features = false, features = ["macros", "rt-multi-thread", "test-util"] }
 tokio-postgres = { version = "0.7.13", default-features = false, features = ["array-impls", "runtime"] }
