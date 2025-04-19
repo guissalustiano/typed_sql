@@ -7,7 +7,11 @@ use quote::{format_ident, quote};
 
 use crate::schema::PrepareStatement;
 
-pub(crate) async fn gen_file(client: &impl tokio_postgres::GenericClient) -> eyre::Result<String> {
+pub(crate) async fn gen_file(
+    client: &impl tokio_postgres::GenericClient,
+    stmts_raw: String,
+) -> eyre::Result<String> {
+    client.batch_execute(&stmts_raw).await?;
     crate::schema::prepare_statements(client)
         .await?
         .into_iter()

@@ -36,14 +36,10 @@ async fn translate_file(
     sql: &mut (impl AsyncReadExt + Unpin),
     rs: &mut (impl AsyncWriteExt + Unpin),
 ) -> eyre::Result<()> {
-    let stmt_raw = {
-        let mut b = String::new();
-        sql.read_to_string(&mut b).await?;
-        b
-    };
-    client.batch_execute(&stmt_raw).await?;
+    let mut stmts_raw = String::new();
+    sql.read_to_string(&mut stmts_raw).await?;
 
-    let code = code_gen::gen_file(client).await?;
+    let code = code_gen::gen_file(client, stmts_raw).await?;
     rs.write(code.as_bytes()).await?;
 
     Ok(())
