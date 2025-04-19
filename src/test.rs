@@ -50,22 +50,24 @@ pub(crate) async fn db_transaction() -> (
     (c, t)
 }
 
-#[tokio::test]
-async fn basic() {
+async fn e2e(ts: &str, ps: &str) -> String {
     let (_c, t) = db_transaction().await;
-    t.execute(
-        "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
-        &[],
-    )
-    .await
-    .unwrap();
+    t.execute(ts, &[]).await.unwrap();
 
-    let mut sql =
-        std::io::Cursor::new("PREPARE list_a AS SELECT a.id, a.name FROM a where id = $1");
+    let mut sql = std::io::Cursor::new(ps);
     let mut rs = std::io::Cursor::new(Vec::new());
 
     translate_file(&t, &mut sql, &mut rs).await.unwrap();
-    let rs = String::from_utf8(rs.into_inner()).unwrap();
+    String::from_utf8(rs.into_inner()).unwrap()
+}
+
+#[tokio::test]
+async fn basic() {
+    let rs = e2e(
+        "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
+        "PREPARE list_a AS SELECT a.id, a.name FROM a where id = $1",
+    )
+    .await;
 
     insta::assert_snapshot!(rs, @r#"
         pub struct ListAParams(pub Option<i32>);
