@@ -23,7 +23,7 @@ pub(crate) async fn gen_file(
         .into_iter()
         .map(gen_fn)
         .collect::<eyre::Result<Vec<String>>>()
-        .map(|s| s.join("\n\n"))
+        .map(|s| s.join("\n"))
 }
 
 async fn prepare_stmts(
@@ -64,11 +64,11 @@ async fn prepare_stmts(
 }
 
 fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
-    fn quote_type(ty: tokio_postgres::types::Type) -> eyre::Result<TokenStream> {
+    fn quote_type(ty: &tokio_postgres::types::Type) -> eyre::Result<TokenStream> {
         use tokio_postgres::types::Type;
         Ok(match ty {
-            Type::INT4 => quote! { pub Option<i32> },
-            Type::TEXT => quote! { pub Option<String> },
+            &Type::INT4 => quote! { i32 },
+            &Type::TEXT => quote! { String },
             _ => eyre::bail!("type {ty} not supported yet"),
         })
     }
@@ -85,7 +85,6 @@ fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
         let param_types = ps
             .parameter_types
             .iter()
-            .cloned()
             .map(quote_type)
             .collect::<eyre::Result<Vec<_>>>()?;
 
@@ -100,19 +99,30 @@ fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
         let result_fields = ps
             .result_types
             .iter()
-            .map(|c| c.type_.clone())
-            .map(quote_type)
+            .map(|c| {
+                let field_type = quote_type(&c.type_)?;
+                let field_ident = format_ident!("{}", c.name);
+
+                Ok(quote! {
+                    pub #field_ident: Option<#field_type>
+                })
+            })
             .collect::<eyre::Result<Vec<_>>>()?;
         quote! {
-            pub struct #rows_struct_ident(#(#result_fields),*);
+            pub struct #rows_struct_ident{
+                #(#result_fields,)*
+            }
         }
     };
 
     // Generate param binding for the query
     let param_binding = if has_params {
         // Create parameter references for binding
-        let param_refs = (0..ps.parameter_types.len())
-            .map(|i| {
+        let param_refs = ps
+            .parameter_types
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
                 let i = proc_macro2::Literal::usize_unsuffixed(i);
                 quote! { p.#i }
             })
@@ -124,10 +134,15 @@ fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
     };
 
     let try_get_expressions = {
-        let get_exprs = (0..ps.result_types.len())
-            .map(|i| {
+        let get_exprs = ps
+            .result_types
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let field_ident = format_ident!("{}", c.name);
                 let i = proc_macro2::Literal::usize_unsuffixed(i);
-                quote! { r.try_get(#i)? }
+
+                quote! { #field_ident: r.try_get(#i)? }
             })
             .collect::<Vec<_>>();
 
@@ -145,7 +160,9 @@ fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
         ) -> Result<Vec<#rows_struct_ident>, tokio_postgres::Error> {
             c.query(#sql_statement, #param_binding).await.map(|rs| {
                 rs.into_iter()
-                    .map(|r| #rows_struct_ident(#try_get_expressions))
+                    .map(|r| #rows_struct_ident{
+                        #try_get_expressions
+                    })
                     .collect()
             })
         }
