@@ -4,7 +4,6 @@ use tokio::{
 };
 
 mod code_gen;
-mod schema;
 #[cfg(test)]
 mod test;
 

@@ -5,14 +5,23 @@ use eyre::ContextCompat;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use crate::schema::PrepareStatement;
+struct ColumnData {
+    name: String,
+    type_: tokio_postgres::types::Type,
+}
+
+struct PrepareStatement {
+    name: String,
+    statement: Box<sqlparser::ast::Statement>,
+    parameter_types: Vec<tokio_postgres::types::Type>,
+    result_types: Vec<ColumnData>,
+}
 
 pub(crate) async fn gen_file(
     client: &impl tokio_postgres::GenericClient,
     stmts_raw: String,
 ) -> eyre::Result<String> {
-    client.batch_execute(&stmts_raw).await?;
-    crate::schema::prepare_statements(client)
+    prepare_stmts(client, &stmts_raw)
         .await?
         .into_iter()
         .map(gen_fn)
@@ -20,14 +29,54 @@ pub(crate) async fn gen_file(
         .map(|s| s.join("\n\n"))
 }
 
-pub(crate) fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
-    fn quote_type(ty: &str) -> eyre::Result<TokenStream> {
-        use crate::schema::types::*;
+async fn prepare_stmts(
+    client: &impl tokio_postgres::GenericClient,
+    stmts_raw: &str,
+) -> eyre::Result<Vec<PrepareStatement>> {
+    let stmts = sqlparser::parser::Parser::parse_sql(
+        &sqlparser::dialect::PostgreSqlDialect {},
+        &stmts_raw,
+    )?;
 
+    let futs = stmts.into_iter().map(|stmt| async move {
+        let sqlparser::ast::Statement::Prepare {
+            name,
+            data_types: _,
+            statement,
+        } = stmt
+        else {
+            eyre::bail!("not support {stmt} statement");
+        };
+        let ps = client.prepare(&statement.to_string()).await?;
+
+        Ok(PrepareStatement {
+            name: name.value,
+            statement,
+            parameter_types: ps.params().to_vec(),
+            result_types: ps
+                .columns()
+                .into_iter()
+                .map(|c| ColumnData {
+                    // c also contains the table id and column id
+                    name: c.name().to_owned(),
+                    type_: c.type_().to_owned(),
+                })
+                .collect(),
+        })
+    });
+
+    futures::future::try_join_all(futs)
+        .await
+        .map_err(eyre::Error::from)
+}
+
+pub fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
+    fn quote_type(ty: tokio_postgres::types::Type) -> eyre::Result<TokenStream> {
+        use tokio_postgres::types::Type;
         Ok(match ty {
-            INT4 => quote! { pub Option<i32> },
-            TEXT => quote! { pub Option<String> },
-            _ => eyre::bail!("type {ty} not found"),
+            Type::INT4 => quote! { pub Option<i32> },
+            Type::TEXT => quote! { pub Option<String> },
+            _ => eyre::bail!("type {ty} not supported yet"),
         })
     }
 
@@ -36,18 +85,14 @@ pub(crate) fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
     let params_struct_ident = format_ident!("{}Params", pascal_name);
 
     let fn_name = format_ident!("{}", ps.name);
-    let sql_statement = ps
-        .statement
-        .split(" AS ")
-        .nth(1)
-        .context("weird prepare statement")?;
+    let sql_statement = ps.statement.to_string();
 
     let has_params = !ps.parameter_types.is_empty();
     let params_struct = if has_params {
         let param_types = ps
             .parameter_types
             .iter()
-            .map(Deref::deref)
+            .cloned()
             .map(quote_type)
             .collect::<eyre::Result<Vec<_>>>()?;
 
@@ -62,7 +107,7 @@ pub(crate) fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
         let result_fields = ps
             .result_types
             .iter()
-            .map(Deref::deref)
+            .map(|c| c.type_.clone())
             .map(quote_type)
             .collect::<eyre::Result<Vec<_>>>()?;
         quote! {
@@ -114,59 +159,4 @@ pub(crate) fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
     };
 
     Ok(prettyplease::unparse(&syn::parse2(paragraph)?))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::schema::types::*;
-
-    #[test]
-    fn prepare_with_output() {
-        let p = PrepareStatement {
-            name: "list_a",
-            statement: "PREPARE list_a AS SELECT a.id, a.name FROM a",
-            parameter_types: vec![],
-            result_types: vec![INT4, TEXT],
-        };
-
-        insta::assert_snapshot!(gen_fn(p).unwrap(), @r#"
-        pub struct ListARows(pub Option<i32>, pub Option<String>);
-        pub async fn list_a(
-            c: impl tokio_postgres::GenericClient,
-            p: ListAParams,
-        ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
-            c.query("SELECT a.id, a.name FROM a", &[])
-                .await
-                .map(|rs| {
-                    rs.into_iter().map(|r| ListARows(r.try_get(0)?, r.try_get(1)?)).collect()
-                })
-        }
-        "#);
-    }
-
-    #[test]
-    fn prepare_with_input_and_output() {
-        let p = PrepareStatement {
-            name: "list_a",
-            statement: "PREPARE list_a AS SELECT a.id, a.name FROM a WHERE a.id = $1",
-            parameter_types: vec![INT4],
-            result_types: vec![INT4, TEXT],
-        };
-
-        insta::assert_snapshot!(gen_fn(p).unwrap(), @r#"
-        pub struct ListAParams(pub Option<i32>);
-        pub struct ListARows(pub Option<i32>, pub Option<String>);
-        pub async fn list_a(
-            c: impl tokio_postgres::GenericClient,
-            p: ListAParams,
-        ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
-            c.query("SELECT a.id, a.name FROM a WHERE a.id = $1", &[p.0])
-                .await
-                .map(|rs| {
-                    rs.into_iter().map(|r| ListARows(r.try_get(0)?, r.try_get(1)?)).collect()
-                })
-        }
-        "#);
-    }
 }

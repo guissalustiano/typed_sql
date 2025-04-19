@@ -7,9 +7,11 @@ edition = "2024"
 clap = { version = "4.5.37", default-features = false, features = ["color", "derive", "std"] }
 convert_case = { version = "0.7.1", default-features = false }
 eyre = { version = "0.6.12", default-features = false, features = ["auto-install"] }
+futures = { version = "0.3.31", default-features = false }
 prettyplease = { version = "0.2.32", default-features = false }
 proc-macro2 = { version = "1.0.93", default-features = false }
 quote = { version = "1.0.38", default-features = false }
+sqlparser = { version = "0.55.0", default-features = false, features = ["recursive", "recursive-protection"] }
 syn = { version = "2.0.100", default-features = false, features = ["parsing"] }
 tokio = { version = "1.44.2", default-features = false, features = ["fs", "macros", "rt", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7.13", features = ["array-impls", "runtime"], default-features = false }

@@ -93,17 +93,71 @@ async fn with_input() {
     .await;
 
     insta::assert_snapshot!(rs, @r#"
-        pub struct ListAParams(pub Option<i32>);
-        pub struct ListARows(pub Option<i32>, pub Option<String>);
-        pub async fn list_a(
-            c: impl tokio_postgres::GenericClient,
-            p: ListAParams,
-        ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
-            c.query("SELECT a.id, a.name FROM a where id = $1", &[p.0])
-                .await
-                .map(|rs| {
-                    rs.into_iter().map(|r| ListARows(r.try_get(0)?, r.try_get(1)?)).collect()
-                })
-        }
-        "#);
+    pub struct ListAParams(pub Option<i32>);
+    pub struct ListARows(pub Option<i32>, pub Option<String>);
+    pub async fn list_a(
+        c: impl tokio_postgres::GenericClient,
+        p: ListAParams,
+    ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
+        c.query("SELECT a.id, a.name FROM a WHERE id = $1", &[p.0])
+            .await
+            .map(|rs| {
+                rs.into_iter().map(|r| ListARows(r.try_get(0)?, r.try_get(1)?)).collect()
+            })
+    }
+    "#);
+}
+
+#[tokio::test]
+async fn multiple_prepare() {
+    let rs = e2e(
+        "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
+        "PREPARE list_a0 AS SELECT a.id, a.name FROM a where id = $1;
+         PREPARE list_a1 AS SELECT a.id, a.name FROM a where id > $1;
+         PREPARE list_a2 AS SELECT a.id, a.name FROM a where id < $1;",
+    )
+    .await;
+
+    insta::assert_snapshot!(rs, @r#"
+    pub struct ListA0Params(pub Option<i32>);
+    pub struct ListA0Rows(pub Option<i32>, pub Option<String>);
+    pub async fn list_a0(
+        c: impl tokio_postgres::GenericClient,
+        p: ListA0Params,
+    ) -> Result<Vec<ListA0Rows>, tokio_postgres::Error> {
+        c.query("SELECT a.id, a.name FROM a WHERE id = $1", &[p.0])
+            .await
+            .map(|rs| {
+                rs.into_iter().map(|r| ListA0Rows(r.try_get(0)?, r.try_get(1)?)).collect()
+            })
+    }
+
+
+    pub struct ListA1Params(pub Option<i32>);
+    pub struct ListA1Rows(pub Option<i32>, pub Option<String>);
+    pub async fn list_a1(
+        c: impl tokio_postgres::GenericClient,
+        p: ListA1Params,
+    ) -> Result<Vec<ListA1Rows>, tokio_postgres::Error> {
+        c.query("SELECT a.id, a.name FROM a WHERE id > $1", &[p.0])
+            .await
+            .map(|rs| {
+                rs.into_iter().map(|r| ListA1Rows(r.try_get(0)?, r.try_get(1)?)).collect()
+            })
+    }
+
+
+    pub struct ListA2Params(pub Option<i32>);
+    pub struct ListA2Rows(pub Option<i32>, pub Option<String>);
+    pub async fn list_a2(
+        c: impl tokio_postgres::GenericClient,
+        p: ListA2Params,
+    ) -> Result<Vec<ListA2Rows>, tokio_postgres::Error> {
+        c.query("SELECT a.id, a.name FROM a WHERE id < $1", &[p.0])
+            .await
+            .map(|rs| {
+                rs.into_iter().map(|r| ListA2Rows(r.try_get(0)?, r.try_get(1)?)).collect()
+            })
+    }
+    "#);
 }
