@@ -67,8 +67,14 @@ fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
     fn quote_type(ty: &tokio_postgres::types::Type) -> eyre::Result<TokenStream> {
         use tokio_postgres::types::Type;
         Ok(match ty {
+            &Type::BOOL => quote! { bool },
+            &Type::INT2 => quote! { i16 },
             &Type::INT4 => quote! { i32 },
-            &Type::TEXT => quote! { String },
+            &Type::INT8 => quote! { i64 },
+            &Type::FLOAT4 => quote! { f32 },
+            &Type::FLOAT8 => quote! { f64 },
+            &Type::CHAR | &Type::VARCHAR | &Type::TEXT => quote! { String },
+            &Type::BYTEA => quote! { Vec<u8> },
             _ => eyre::bail!("type {ty} not supported yet"),
         })
     }
@@ -85,11 +91,21 @@ fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
         let param_types = ps
             .parameter_types
             .iter()
-            .map(quote_type)
+            .enumerate()
+            .map(|(i, t)| {
+                let field_type = quote_type(t)?;
+                let field_ident = format_ident!("param_{}", i);
+
+                Ok(quote! {
+                    pub #field_ident: Option<#field_type>
+                })
+            })
             .collect::<eyre::Result<Vec<_>>>()?;
 
         quote! {
-            pub struct #params_struct_ident(#(#param_types),*);
+            pub struct #params_struct_ident{
+                #(#param_types,)*
+            }
         }
     } else {
         quote! {}
@@ -123,8 +139,8 @@ fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                let i = proc_macro2::Literal::usize_unsuffixed(i);
-                quote! { p.#i }
+                let field_ident = format_ident!("param_{}", i);
+                quote! { p.#field_ident }
             })
             .collect::<Vec<_>>();
 
