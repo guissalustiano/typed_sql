@@ -7,7 +7,16 @@ use quote::{format_ident, quote};
 
 use crate::schema::PrepareStatement;
 
-pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
+pub(crate) async fn gen_file(client: &impl tokio_postgres::GenericClient) -> eyre::Result<String> {
+    crate::schema::prepare_statements(client)
+        .await?
+        .into_iter()
+        .map(gen_fn)
+        .collect::<eyre::Result<Vec<String>>>()
+        .map(|s| s.join("\n\n"))
+}
+
+pub(crate) fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
     fn quote_type(ty: &str) -> eyre::Result<TokenStream> {
         use crate::schema::types::*;
 
@@ -18,20 +27,20 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
         })
     }
 
-    let pascal_name = data.name.to_case(Case::Pascal);
+    let pascal_name = ps.name.to_case(Case::Pascal);
     let rows_struct_ident = format_ident!("{}Rows", pascal_name);
     let params_struct_ident = format_ident!("{}Params", pascal_name);
 
-    let fn_name = format_ident!("{}", data.name);
-    let sql_statement = data
+    let fn_name = format_ident!("{}", ps.name);
+    let sql_statement = ps
         .statement
         .split(" AS ")
         .nth(1)
         .context("weird prepare statement")?;
 
-    let has_params = !data.parameter_types.is_empty();
+    let has_params = !ps.parameter_types.is_empty();
     let params_struct = if has_params {
-        let param_types = data
+        let param_types = ps
             .parameter_types
             .iter()
             .map(Deref::deref)
@@ -46,7 +55,7 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
     };
 
     let rows_struct = {
-        let result_fields = data
+        let result_fields = ps
             .result_types
             .iter()
             .map(Deref::deref)
@@ -60,7 +69,7 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
     // Generate param binding for the query
     let param_binding = if has_params {
         // Create parameter references for binding
-        let param_refs = (0..data.parameter_types.len())
+        let param_refs = (0..ps.parameter_types.len())
             .map(|i| {
                 let i = proc_macro2::Literal::usize_unsuffixed(i);
                 quote! { p.#i }
@@ -73,7 +82,7 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
     };
 
     let try_get_expressions = {
-        let get_exprs = (0..data.result_types.len())
+        let get_exprs = (0..ps.result_types.len())
             .map(|i| {
                 let i = proc_macro2::Literal::usize_unsuffixed(i);
                 quote! { r.try_get(#i)? }
@@ -84,7 +93,7 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
     };
 
     // Generate the function body with the appropriate try_get expressions
-    Ok(quote! {
+    let paragraph = quote! {
         #params_struct
         #rows_struct
 
@@ -98,17 +107,15 @@ pub(crate) fn gen_fn(data: PrepareStatement) -> eyre::Result<TokenStream> {
                     .collect()
             })
         }
-    })
+    };
+
+    Ok(prettyplease::unparse(&syn::parse2(paragraph)?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::schema::types::*;
-
-    fn g(p: PrepareStatement) -> String {
-        prettyplease::unparse(&syn::parse2(gen_fn(p).unwrap()).unwrap())
-    }
 
     #[test]
     fn prepare_with_output() {
@@ -119,7 +126,7 @@ mod tests {
             result_types: vec![INT4, TEXT],
         };
 
-        insta::assert_snapshot!(g(p), @r#"
+        insta::assert_snapshot!(gen_fn(p).unwrap(), @r#"
         pub struct ListARows(pub Option<i32>, pub Option<String>);
         pub async fn list_a(
             c: impl tokio_postgres::GenericClient,
@@ -143,7 +150,7 @@ mod tests {
             result_types: vec![INT4, TEXT],
         };
 
-        insta::assert_snapshot!(g(p), @r#"
+        insta::assert_snapshot!(gen_fn(p).unwrap(), @r#"
         pub struct ListAParams(pub Option<i32>);
         pub struct ListARows(pub Option<i32>, pub Option<String>);
         pub async fn list_a(
