@@ -20,3 +20,15 @@ tokio-postgres = { version = "0.7.13", features = ["array-impls", "runtime"], de
 insta = { version = "1.42.2", default-features = false }
 testcontainers-modules = { version = "0.11.6", default-features = false, features = ["postgres"] }
 tokio = { version = "1.44.2", default-features = false, features = ["test-util"] }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = 0 }
+pedantic = { level = "warn", priority = 1 }
+
+# Behaviors `restrict`ed by law
+unwrap_used = { level = "warn", priority = 2 }
+allow_attributes = { level = "warn", priority = 2 }
+allow_attributes_without_reason = { level = "warn", priority = 2 }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

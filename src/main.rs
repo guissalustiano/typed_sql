@@ -17,7 +17,7 @@ struct Args {
 async fn main() -> eyre::Result<()> {
     let cli: Args = clap::Parser::parse();
     let url = "postgres://postgres:bipa@localhost/sqlc";
-    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await?;
+    let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -39,7 +39,7 @@ async fn translate_file(
     sql.read_to_string(&mut stmts_raw).await?;
 
     let code = code_gen::gen_file(client, stmts_raw).await?;
-    rs.write(code.as_bytes()).await?;
+    rs.write_all(code.as_bytes()).await?;
 
     Ok(())
 }

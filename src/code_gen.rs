@@ -1,7 +1,4 @@
-use std::ops::Deref;
-
 use convert_case::{Case, Casing};
-use eyre::ContextCompat;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -33,10 +30,8 @@ async fn prepare_stmts(
     client: &impl tokio_postgres::GenericClient,
     stmts_raw: &str,
 ) -> eyre::Result<Vec<PrepareStatement>> {
-    let stmts = sqlparser::parser::Parser::parse_sql(
-        &sqlparser::dialect::PostgreSqlDialect {},
-        &stmts_raw,
-    )?;
+    let stmts =
+        sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect {}, stmts_raw)?;
 
     let futs = stmts.into_iter().map(|stmt| async move {
         let sqlparser::ast::Statement::Prepare {
@@ -55,7 +50,7 @@ async fn prepare_stmts(
             parameter_types: ps.params().to_vec(),
             result_types: ps
                 .columns()
-                .into_iter()
+                .iter()
                 .map(|c| ColumnData {
                     // c also contains the table id and column id
                     name: c.name().to_owned(),
@@ -65,12 +60,10 @@ async fn prepare_stmts(
         })
     });
 
-    futures::future::try_join_all(futs)
-        .await
-        .map_err(eyre::Error::from)
+    futures::future::try_join_all(futs).await
 }
 
-pub fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
+fn gen_fn(ps: PrepareStatement) -> eyre::Result<String> {
     fn quote_type(ty: tokio_postgres::types::Type) -> eyre::Result<TokenStream> {
         use tokio_postgres::types::Type;
         Ok(match ty {
