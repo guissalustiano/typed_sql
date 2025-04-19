@@ -62,7 +62,30 @@ async fn e2e(ts: &str, ps: &str) -> String {
 }
 
 #[tokio::test]
-async fn basic() {
+async fn without_input() {
+    let rs = e2e(
+        "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
+        "PREPARE list_a AS SELECT a.id, a.name FROM a",
+    )
+    .await;
+
+    insta::assert_snapshot!(rs, @r#"
+    pub struct ListARows(pub Option<i32>, pub Option<String>);
+    pub async fn list_a(
+        c: impl tokio_postgres::GenericClient,
+        p: ListAParams,
+    ) -> Result<Vec<ListARows>, tokio_postgres::Error> {
+        c.query("SELECT a.id, a.name FROM a", &[])
+            .await
+            .map(|rs| {
+                rs.into_iter().map(|r| ListARows(r.try_get(0)?, r.try_get(1)?)).collect()
+            })
+    }
+    "#);
+}
+
+#[tokio::test]
+async fn with_input() {
     let rs = e2e(
         "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
         "PREPARE list_a AS SELECT a.id, a.name FROM a where id = $1",
