@@ -122,24 +122,12 @@ pub(crate) async fn prepare_statements<'a, 'b>(
 
 #[cfg(test)]
 mod test {
-    use super::types::*;
-    use super::*;
+    use crate::schema::{PrepareStatement, prepare_statements, types::*};
+    use crate::test::db_transaction;
 
     #[tokio::test]
-    #[ignore]
     async fn run_prepare_statement() {
-        let url = "postgres://postgres:bipa@localhost/sqlc";
-        let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-            .await
-            .unwrap();
-
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
-            }
-        });
-
-        let t = client.transaction().await.unwrap();
+        let t = db_transaction().await;
         for stmt in [
             "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
             "PREPARE list_a AS SELECT a.id, a.name FROM a where id = $1",
