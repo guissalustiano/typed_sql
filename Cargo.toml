@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.37", default-features = false, features = ["color", "derive", "std"] }
 convert_case = { version = "0.7.1", default-features = false }
-eyre = { version = "0.6.12", default-features = false }
+eyre = { version = "0.6.12", default-features = false, features = ["auto-install"] }
 prettyplease = { version = "0.2.32", default-features = false }
 proc-macro2 = { version = "1.0.93", default-features = false }
 quote = { version = "1.0.38", default-features = false }
@@ -16,4 +16,5 @@ tokio-postgres = { version = "0.7.13", features = ["array-impls", "runtime"], de
 
 [dev-dependencies]
 insta = { version = "1.42.2", default-features = false }
+testcontainers-modules = { version = "0.11.6", default-features = false, features = ["postgres"] }
 tokio = { version = "1.44.2", default-features = false, features = ["test-util"] }

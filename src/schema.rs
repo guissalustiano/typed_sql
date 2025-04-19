@@ -127,7 +127,7 @@ mod test {
 
     #[tokio::test]
     async fn run_prepare_statement() {
-        let t = db_transaction().await;
+        let (_c, t) = db_transaction().await;
         for stmt in [
             "CREATE TABLE a(id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, name TEXT)",
             "PREPARE list_a AS SELECT a.id, a.name FROM a where id = $1",
